@@ -18,7 +18,7 @@ public class Site {
     private long id;
 
     @Column(columnDefinition = "ENUM('INDEXING', 'INDEXED', 'FAILED')", nullable = false)
-    private Status status;
+    private String status;
 
     @Column(name = "status_time", nullable = false)
     private LocalDateTime statusTime;

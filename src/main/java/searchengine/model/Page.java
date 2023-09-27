@@ -1,12 +1,14 @@
 package searchengine.model;
 
+import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import javax.persistence.*;
 
 @Entity
-@org.hibernate.annotations.Table(appliesTo = "page", indexes = @org.hibernate.annotations.Index(name = "ind", columnNames = "path"))
 @Data
+@NoArgsConstructor
 public class Page {
 
     @Id
@@ -26,4 +28,10 @@ public class Page {
 
     @Column(columnDefinition = "MEDIUMTEXT", nullable = false)
     private String content;
+
+    public Page(String path, int code, String content) {
+        this.path = path;
+        this.code = code;
+        this.content = content;
+    }
 }

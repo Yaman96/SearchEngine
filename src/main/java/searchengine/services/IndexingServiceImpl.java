@@ -6,13 +6,17 @@ import org.springframework.stereotype.Service;
 import searchengine.config.SitesList;
 import searchengine.dto.indexing.IndexingResponse;
 
+import searchengine.model.Page;
 import searchengine.model.Site;
 import searchengine.model.Status;
+import searchengine.repositories.PageRepository;
 import searchengine.repositories.SiteRepository;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.Future;
 
 @Service
 public class IndexingServiceImpl implements IndexingService {
@@ -21,11 +25,14 @@ public class IndexingServiceImpl implements IndexingService {
 
     private SiteRepository siteRepository;
 
+    private PageRepository pageRepository;
+
     private ApplicationContext applicationContext;
 
     @Autowired
-    public IndexingServiceImpl(SiteRepository siteRepository, SitesList sitesListFromConfig, ApplicationContext applicationContext) {
+    public IndexingServiceImpl(SiteRepository siteRepository, SitesList sitesListFromConfig, ApplicationContext applicationContext, PageRepository pageRepository) {
         this.siteRepository = siteRepository;
+        this.pageRepository = pageRepository;
         this.sitesListFromConfig = sitesListFromConfig;
         this.applicationContext = applicationContext;
     }
@@ -36,10 +43,20 @@ public class IndexingServiceImpl implements IndexingService {
         List<Site> createdSites = createNewSites(sitesListFromConfig.getSites());
 
         for (Site site : createdSites) {
+//            List<LinkExtractorService> linkExtractorTasks = new ArrayList<>();
             LinkExtractorService linkExtractor = applicationContext.getBean(LinkExtractorService.class);
-            linkExtractor.setStartURL(site.getUrl());
+            LinkExtractorService.setStartURL(site.getUrl());
             linkExtractor.setUrl(site.getUrl());
-
+//            linkExtractorTasks.add(linkExtractor);
+            ForkJoinPool forkJoinPool = new ForkJoinPool();
+            String result = forkJoinPool.invoke(linkExtractor);
+            for (Page page : LinkExtractorService.pageList) {
+                page.setSite(site);
+            }
+            pageRepository.saveAll(LinkExtractorService.pageList);
+            LinkExtractorService.pageList.clear();
+            LinkExtractorService.linksListReset();
+            System.out.println("Result " + result);
         }
 
         return null;
@@ -47,8 +64,7 @@ public class IndexingServiceImpl implements IndexingService {
 
     private void deleteSiteInfo(List<searchengine.config.Site> sitesToDelete) {
         for (searchengine.config.Site site: sitesToDelete) {
-            boolean siteIsDeleted = siteRepository.deleteByNameContainsIgnoreCase(site.getName());
-            System.out.println("Site "+ site.getName() + " is deleted from DB: " + siteIsDeleted);
+            siteRepository.deleteByNameContainsIgnoreCase(site.getName()); //TODO check what CRUDRepository can return instead of void
             //TODO here we can add logging info
         }
     }
@@ -59,7 +75,7 @@ public class IndexingServiceImpl implements IndexingService {
             Site newSite = new Site();
             newSite.setName(site.getName());
             newSite.setUrl(site.getUrl());
-            newSite.setStatus(Status.INDEXING);
+            newSite.setStatus(Status.INDEXING.toString());
             newSite.setStatusTime(LocalDateTime.now());
             createdSites.add(newSite);
         }
