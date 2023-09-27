@@ -34,4 +34,9 @@ public class Site {
 
     @OneToMany(mappedBy = "site", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Page> pages = new ArrayList<>();
+
+    //To avoid duplicates of sites in DB
+    public void setName(String name) {
+        this.name = name.toLowerCase();
+    }
 }
