@@ -29,9 +29,10 @@ public class Page {
     @Column(columnDefinition = "MEDIUMTEXT", nullable = false)
     private String content;
 
-    public Page(String path, int code, String content) {
+    public Page(String path, int code, String content, Site site) {
         this.path = path;
         this.code = code;
         this.content = content;
+        this.site = site;
     }
 }

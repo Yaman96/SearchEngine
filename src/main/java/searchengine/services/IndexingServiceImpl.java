@@ -15,6 +15,7 @@ import searchengine.repositories.SiteRepository;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ForkJoinPool;
 
 @Service
@@ -46,16 +47,16 @@ public class IndexingServiceImpl implements IndexingService {
         for (Site site : createdSites) {
             isIndexing = true;
             new Thread(() -> updateIndexingTime(site)).start();
-            LinkExtractorService linkExtractor = applicationContext.getBean(LinkExtractorService.class);
-            setUpLinkExtractorService(site,linkExtractor);
+            NewLinkExtractorService linkExtractor = new NewLinkExtractorService(site.getUrl(),site);
+//            setUpLinkExtractorService(site,linkExtractor);
             ForkJoinPool forkJoinPool = new ForkJoinPool();
-            String result = forkJoinPool.invoke(linkExtractor);
-            assignSiteToPages(site);
-            pageRepository.saveAll(LinkExtractorService.pageList);
+            CopyOnWriteArraySet<Page> pages = forkJoinPool.invoke(linkExtractor);
+//            assignSiteToPages(site);
+            pageRepository.saveAll(pages);
             isIndexing = false;
             changeSiteStatusToIndexed(site);
-            resetLinkExtractor();
-            System.out.println("Result " + result);
+//            resetLinkExtractor();
+//            System.out.println("Result " + result);
         }
         return null;
     }

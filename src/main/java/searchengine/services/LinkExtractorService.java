@@ -79,7 +79,7 @@ public class LinkExtractorService extends RecursiveTask<String> {
                     LinkExtractorService.links.add(attr);
                 }
             }
-            pageList.add(new Page(url,code, document.html()));
+            pageList.add(new Page(url,code, document.html(),currentSite));
         }catch (IOException | InterruptedException e) {
             currentSite.setStatus(Status.FAILED.toString());
             currentSite.setLastError("Site indexing exception occurred. \n" + Arrays.toString(e.getStackTrace()));
