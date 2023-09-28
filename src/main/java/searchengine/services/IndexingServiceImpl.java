@@ -16,18 +16,19 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.Future;
 
 @Service
 public class IndexingServiceImpl implements IndexingService {
 
-    private SitesList sitesListFromConfig;
+    private final SitesList sitesListFromConfig;
 
-    private SiteRepository siteRepository;
+    private final SiteRepository siteRepository;
 
-    private PageRepository pageRepository;
+    private final PageRepository pageRepository;
 
-    private ApplicationContext applicationContext;
+    private final ApplicationContext applicationContext;
+
+    private volatile boolean isIndexing = false;
 
     @Autowired
     public IndexingServiceImpl(SiteRepository siteRepository, SitesList sitesListFromConfig, ApplicationContext applicationContext, PageRepository pageRepository) {
@@ -43,23 +44,32 @@ public class IndexingServiceImpl implements IndexingService {
         List<Site> createdSites = createNewSites(sitesListFromConfig.getSites());
 
         for (Site site : createdSites) {
-//            List<LinkExtractorService> linkExtractorTasks = new ArrayList<>();
+            isIndexing = true;
+            new Thread(() -> updateIndexingTime(site)).start();
             LinkExtractorService linkExtractor = applicationContext.getBean(LinkExtractorService.class);
-            LinkExtractorService.setStartURL(site.getUrl());
-            linkExtractor.setUrl(site.getUrl());
-//            linkExtractorTasks.add(linkExtractor);
+            setUpLinkExtractorService(site,linkExtractor);
             ForkJoinPool forkJoinPool = new ForkJoinPool();
             String result = forkJoinPool.invoke(linkExtractor);
-            for (Page page : LinkExtractorService.pageList) {
-                page.setSite(site);
-            }
+            assignSiteToPages(site);
             pageRepository.saveAll(LinkExtractorService.pageList);
-            LinkExtractorService.pageList.clear();
-            LinkExtractorService.linksListReset();
+            isIndexing = false;
+            changeSiteStatusToIndexed(site);
+            resetLinkExtractor();
             System.out.println("Result " + result);
         }
-
         return null;
+    }
+
+    private void assignSiteToPages(Site site) {
+        for (Page page : LinkExtractorService.pageList) {
+            page.setSite(site);
+        }
+    }
+
+    private void resetLinkExtractor() {
+        LinkExtractorService.pageList.clear();
+        LinkExtractorService.links.clear();
+        LinkExtractorService.currentSite = null;
     }
 
     private void deleteSiteInfo(List<searchengine.config.Site> sitesToDelete) {
@@ -81,5 +91,31 @@ public class IndexingServiceImpl implements IndexingService {
         }
         siteRepository.saveAll(createdSites);
         return createdSites;
+    }
+
+    @SuppressWarnings("All")
+    private void updateIndexingTime(Site site) {
+        while (isIndexing) {
+            site.setStatusTime(LocalDateTime.now());
+            siteRepository.save(site);
+            try {
+                Thread.sleep(300);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    private void changeSiteStatusToIndexed(Site site) {
+        if(!site.getStatus().equals(Status.FAILED.toString())) {
+        site.setStatus(Status.INDEXED.toString());
+        siteRepository.save(site);
+        }
+    }
+
+    private void setUpLinkExtractorService(Site site, LinkExtractorService linkExtractor) {
+        LinkExtractorService.setStartURL(site.getUrl());
+        LinkExtractorService.currentSite = site;
+        linkExtractor.setUrl(site.getUrl());
     }
 }
