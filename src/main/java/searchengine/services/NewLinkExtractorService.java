@@ -7,6 +7,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 import searchengine.model.Page;
 import searchengine.model.Site;
@@ -19,18 +20,18 @@ import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.RecursiveTask;
 
 @Service
-@NoArgsConstructor
 public class NewLinkExtractorService extends RecursiveTask<CopyOnWriteArraySet<Page>> {
 
     public static CopyOnWriteArraySet<String> links = new CopyOnWriteArraySet<>();
     public static CopyOnWriteArraySet<Page> pageList = new CopyOnWriteArraySet<>();
     private Site site;
-
-    @Autowired
     private SiteRepository siteRepository;
     private Page page;
     private final String USER_AGENT = "Mozilla/5.0 (Windows; U; WindowsNT 5.1; en-US; rv1.8.1.6) Gecko/20070725 Firefox/2.0.0.6";
     private final String REFERER = "https://www.google.com";
+
+    @Autowired
+    private ApplicationContext applicationContext;
 
     @Override
     protected CopyOnWriteArraySet<Page> compute() {
@@ -60,8 +61,9 @@ public class NewLinkExtractorService extends RecursiveTask<CopyOnWriteArraySet<P
 
             for (Element element : elements) {
                 String link = element.absUrl("href");
-                System.out.println("Site link: " + site.getUrl() + "current link: " + link);
+                System.out.println("Site link: " + site.getUrl() + " current link: " + link);
                 Page currentPage = new Page(link,responseCode,document.html(),site);
+                System.out.println(currentPage.getPath());
                 if(isValidPageLink(currentPage)) {
                     System.out.println("before forking: " + site);
                     NewLinkExtractorService extractorService = new NewLinkExtractorService(currentPage,site);
@@ -82,12 +84,16 @@ public class NewLinkExtractorService extends RecursiveTask<CopyOnWriteArraySet<P
 
     private boolean isValidPageLink(Page currentPage) {
         String link = currentPage.getPath();
-        return !link.isEmpty() && link.startsWith(page.getPath()) && !link.endsWith(".jpg") &&
-                !link.endsWith(".png") && !link.endsWith(".pdf") &&
-                !link.contains("#") && !NewLinkExtractorService.links.contains(link);
+        return !link.isEmpty() &&
+                link.startsWith(page.getPath()) &&
+                !link.endsWith(".jpg") &&
+                !link.endsWith(".png") &&
+                !link.endsWith(".pdf") &&
+                !link.contains("#") &&
+                !NewLinkExtractorService.links.contains(link);
     }
 
-//    @Autowired
+    @Autowired
     public NewLinkExtractorService(SiteRepository siteRepository) {
         this.siteRepository = siteRepository;
     }
@@ -114,8 +120,7 @@ public class NewLinkExtractorService extends RecursiveTask<CopyOnWriteArraySet<P
         } catch (IOException e) {
             site.setLastError(Arrays.toString(e.getStackTrace()));
             site.setStatus(Status.FAILED.toString());
-            siteRepository.save(site);
-//            throw new RuntimeException(e);
+            throw new RuntimeException(e);
         }
     }
 }
