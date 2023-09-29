@@ -3,12 +3,14 @@ package searchengine.model;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.ToString;
 
 import javax.persistence.*;
 
 @Entity
 @Data
 @NoArgsConstructor
+@ToString
 public class Page {
 
     @Id

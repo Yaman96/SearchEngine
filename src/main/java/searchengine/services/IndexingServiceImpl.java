@@ -14,9 +14,10 @@ import searchengine.repositories.SiteRepository;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
-import java.util.concurrent.CopyOnWriteArraySet;
-import java.util.concurrent.ForkJoinPool;
+import java.util.Map;
+import java.util.concurrent.*;
 
 @Service
 public class IndexingServiceImpl implements IndexingService {
@@ -43,21 +44,54 @@ public class IndexingServiceImpl implements IndexingService {
     public IndexingResponse startIndexing() {
         deleteSiteInfo(sitesListFromConfig.getSites());
         List<Site> createdSites = createNewSites(sitesListFromConfig.getSites());
+        CopyOnWriteArraySet<Page> pages = new CopyOnWriteArraySet<>();
+
+        ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() - 1);
+        Map<String,Future<CopyOnWriteArraySet<Page>>> futures = new HashMap<>();
+        Map<String,Thread> statusThreads = new HashMap<>();
 
         for (Site site : createdSites) {
-            isIndexing = true;
-            new Thread(() -> updateIndexingTime(site)).start();
-            NewLinkExtractorService linkExtractor = new NewLinkExtractorService(site.getUrl(),site);
-//            setUpLinkExtractorService(site,linkExtractor);
-            ForkJoinPool forkJoinPool = new ForkJoinPool();
-            CopyOnWriteArraySet<Page> pages = forkJoinPool.invoke(linkExtractor);
-//            assignSiteToPages(site);
-            pageRepository.saveAll(pages);
-            isIndexing = false;
-            changeSiteStatusToIndexed(site);
-//            resetLinkExtractor();
-//            System.out.println("Result " + result);
+            futures.put(site.getUrl(), executorService.submit( () -> {
+                NewLinkExtractorService linkExtractor = new NewLinkExtractorService(site.getUrl(), site);
+                return linkExtractor.invoke();
+            }));
         }
+
+        for (Site site : createdSites) {
+            new Thread(() -> {
+                while (!futures.get(site.getUrl()).isDone()) {
+                    updateIndexingTime(site);
+                }
+                changeSiteStatusToIndexed(site);
+            }).start();
+        }
+
+        for (Site site : createdSites) {
+            try {
+                pages.addAll(futures.get(site.getUrl()).get());
+            } catch (InterruptedException | ExecutionException e) {
+                throw new RuntimeException(e);
+            }
+        }
+        pageRepository.saveAll(pages);
+
+//        for (Site site : createdSites) {
+//            isIndexing = true;
+////            new Thread(() -> updateIndexingTime(site)).start();
+//            NewLinkExtractorService linkExtractor = new NewLinkExtractorService(site.getUrl(),site);
+////            setUpLinkExtractorService(site,linkExtractor);
+//            ForkJoinPool forkJoinPool = new ForkJoinPool();
+//            System.out.println("before fjp");
+//            CopyOnWriteArraySet<Page> pages = forkJoinPool.invoke(linkExtractor);
+//            System.out.println("after fjp " + pages.isEmpty());
+////            assignSiteToPages(site);
+//            pages.forEach(x -> System.out.println("blaalala " + x.getSite()));
+//            pageRepository.saveAll(pages);
+//            isIndexing = false;
+//            changeSiteStatusToIndexed(site);
+////            resetLinkExtractor();
+////            System.out.println("Result " + result);
+//        }
         return null;
     }
 
@@ -96,7 +130,6 @@ public class IndexingServiceImpl implements IndexingService {
 
     @SuppressWarnings("All")
     private void updateIndexingTime(Site site) {
-        while (isIndexing) {
             site.setStatusTime(LocalDateTime.now());
             siteRepository.save(site);
             try {
@@ -104,7 +137,6 @@ public class IndexingServiceImpl implements IndexingService {
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
-        }
     }
 
     private void changeSiteStatusToIndexed(Site site) {

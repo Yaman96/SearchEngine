@@ -16,10 +16,10 @@ spring:
 
 indexing-settings:
   sites:
-#    - url: https://www.skillbox.ru
-#      name: Skillbox
-    - url: https://www.playback.ru
-      name: PlayBack.Ru
+    - url: https://www.skillbox.ru
+      name: Skillbox
+#    - url: https://www.playback.ru
+#      name: PlayBack.Ru
 #    - url: https://www.smallsitesbysarah.com
 #      name: smallsitesbysarah
 #    - url: https://www.lenta.ru

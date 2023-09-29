@@ -1,6 +1,7 @@
 package searchengine.model;
 
 import lombok.Data;
+import lombok.ToString;
 
 import javax.persistence.*;
 import java.time.LocalDateTime;
@@ -10,6 +11,7 @@ import java.util.List;
 @Entity
 @Table(name = "site")
 @Data
+@ToString
 public class Site {
 
     @Id
