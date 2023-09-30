@@ -1,6 +1,5 @@
 package searchengine.services;
 
-import lombok.NoArgsConstructor;
 import org.jsoup.Connection;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -15,7 +14,9 @@ import searchengine.model.Status;
 import searchengine.repositories.SiteRepository;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.RecursiveTask;
 
@@ -63,7 +64,7 @@ public class NewLinkExtractorService extends RecursiveTask<CopyOnWriteArraySet<P
                 String link = element.absUrl("href");
                 System.out.println("Site link: " + site.getUrl() + " current link: " + link);
                 Page currentPage = new Page(link,responseCode,document.html(),site);
-                System.out.println(currentPage.getPath());
+                System.out.println(currentPage.getPath() + " is valid: " + isValidPageLink(currentPage) + " main page: " + page.getPath());
                 if(isValidPageLink(currentPage)) {
                     System.out.println("before forking: " + site);
                     NewLinkExtractorService extractorService = new NewLinkExtractorService(currentPage,site);
