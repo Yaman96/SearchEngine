@@ -61,6 +61,16 @@ public class IndexingServiceImpl implements IndexingService {
             new Thread(() -> {
                 while (!futures.get(site.getUrl()).isDone()) {
                     updateIndexingTime(site);
+                    System.out.println("size: " + NewLinkExtractorService.pageList.size());
+                    if(NewLinkExtractorService.pageList.size() > 100) {
+                        new Thread(() -> {
+                            List<Page> pagesToSave = new ArrayList<>(NewLinkExtractorService.pageList);
+                            pageRepository.saveAll(pagesToSave);
+                            NewLinkExtractorService.pageList.removeAll(pagesToSave);
+                            pagesToSave.clear();
+                            System.out.println("Links list: " + NewLinkExtractorService.links.size());
+                        }).start();
+                    }
                 }
                 changeSiteStatusToIndexed(site);
             }).start();
@@ -73,6 +83,7 @@ public class IndexingServiceImpl implements IndexingService {
                 throw new RuntimeException(e);
             }
         }
+        System.out.println("page list size: " + pages.size());
         pageRepository.saveAll(pages);
 
 //        for (Site site : createdSites) {
@@ -133,7 +144,7 @@ public class IndexingServiceImpl implements IndexingService {
             site.setStatusTime(LocalDateTime.now());
             siteRepository.save(site);
             try {
-                Thread.sleep(300);
+                Thread.sleep(1000);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
