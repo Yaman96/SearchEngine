@@ -6,4 +6,6 @@ import java.util.List;
 
 public interface IndexingService {
     public IndexingResponse startIndexing();
+
+    public IndexingResponse stopIndexing();
 }

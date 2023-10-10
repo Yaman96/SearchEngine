@@ -19,13 +19,14 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.RecursiveAction;
 import java.util.concurrent.RecursiveTask;
 
 @Service
-public class NewLinkExtractorService extends RecursiveTask<CopyOnWriteArraySet<Page>> {
+public class NewLinkExtractorService extends RecursiveAction {
 
     public static CopyOnWriteArraySet<String> links = new CopyOnWriteArraySet<>();
-    public static CopyOnWriteArraySet<Page> pageList = new CopyOnWriteArraySet<>();
+    public static final CopyOnWriteArraySet<Page> pageList = new CopyOnWriteArraySet<>();
     private Site site;
     @Autowired
     private static SiteRepository siteRepository;
@@ -39,18 +40,14 @@ public class NewLinkExtractorService extends RecursiveTask<CopyOnWriteArraySet<P
     private ApplicationContext applicationContext;
 
     @Override
-    protected CopyOnWriteArraySet<Page> compute() {
-        CopyOnWriteArraySet<Page> pages = new CopyOnWriteArraySet<>();
-        pages.add(page);
+    protected void compute() {
         Set<NewLinkExtractorService> tasks = new HashSet<>();
 
         getLinks(tasks);
 
         for (NewLinkExtractorService task : tasks) {
-            pages.addAll(task.join());
-//            System.out.println("in method compute page size: " + pages.size());
+            task.join();
         }
-        return pages;
     }
 
     private void getLinks(Set<NewLinkExtractorService> tasks) {
@@ -68,18 +65,13 @@ public class NewLinkExtractorService extends RecursiveTask<CopyOnWriteArraySet<P
 
             for (Element element : elements) {
                 String link = element.absUrl("href");
-//                System.out.println("Site link: " + site.getUrl() + " current link: " + link);
                 Page currentPage = new Page(link,responseCode,document.html(),site);
-//                System.out.println(currentPage.getPath() + " is valid: " + isValidPageLink(currentPage) + " main page: " + page.getPath());
                 if(isValidPageLink(currentPage)) {
-//                    System.out.println("before forking: " + site);
                     NewLinkExtractorService extractorService = new NewLinkExtractorService(currentPage,site);
                     extractorService.fork();
                     tasks.add(extractorService);
-//                    System.out.println(link);
                     NewLinkExtractorService.links.add(link);
                     pageList.add(new Page(link.trim(),responseCode,document.html(),site));
-//                    System.out.println(pageList.size());
                 }
             }
         } catch  (IOException | InterruptedException e) {
@@ -100,7 +92,7 @@ public class NewLinkExtractorService extends RecursiveTask<CopyOnWriteArraySet<P
 
     @Autowired
     public NewLinkExtractorService(SiteRepository siteRepository) {
-        this.siteRepository = siteRepository;
+        NewLinkExtractorService.siteRepository = siteRepository;
     }
 
     public NewLinkExtractorService(Page page) {

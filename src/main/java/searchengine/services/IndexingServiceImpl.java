@@ -4,14 +4,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 import searchengine.config.SitesList;
+import searchengine.dto.indexing.IndexingErrorResponse;
 import searchengine.dto.indexing.IndexingResponse;
 
+import searchengine.dto.indexing.IndexingSuccessResponse;
 import searchengine.model.Page;
 import searchengine.model.Site;
 import searchengine.model.Status;
 import searchengine.repositories.PageRepository;
 import searchengine.repositories.SiteRepository;
 
+import javax.persistence.EntityNotFoundException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -28,27 +31,30 @@ public class IndexingServiceImpl implements IndexingService {
 
     private final PageRepository pageRepository;
 
-    private final ApplicationContext applicationContext;
+    Map<String,Future> futures = new HashMap<>();
 
-    private volatile boolean isIndexing = false;
+    private boolean indexingIsRunning = false;
+    private boolean stopIndexing = false;
 
     @Autowired
-    public IndexingServiceImpl(SiteRepository siteRepository, SitesList sitesListFromConfig, ApplicationContext applicationContext, PageRepository pageRepository) {
+    public IndexingServiceImpl(SiteRepository siteRepository, SitesList sitesListFromConfig, PageRepository pageRepository) {
         this.siteRepository = siteRepository;
         this.pageRepository = pageRepository;
         this.sitesListFromConfig = sitesListFromConfig;
-        this.applicationContext = applicationContext;
     }
 
     @Override
     public IndexingResponse startIndexing() {
+        if (indexingIsRunning) {
+            return new IndexingErrorResponse(false,"Indexing is already running");
+        }
+        indexingIsRunning = true;
+        stopIndexing = false;
         deleteSiteInfo(sitesListFromConfig.getSites());
         List<Site> createdSites = createNewSites(sitesListFromConfig.getSites());
-        CopyOnWriteArraySet<Page> pages = new CopyOnWriteArraySet<>();
 
         ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() - 1);
-        Map<String,Future<CopyOnWriteArraySet<Page>>> futures = new HashMap<>();
-        Map<String,Thread> statusThreads = new HashMap<>();
+        futures = new HashMap<>();
 
         for (Site site : createdSites) {
             futures.put(site.getUrl(), executorService.submit( () -> {
@@ -64,12 +70,13 @@ public class IndexingServiceImpl implements IndexingService {
                     System.out.println("size: " + NewLinkExtractorService.pageList.size());
                     if(NewLinkExtractorService.pageList.size() > 100) {
                         new Thread(() -> {
+                            synchronized (NewLinkExtractorService.pageList) {
                             List<Page> pagesToSave = new ArrayList<>(NewLinkExtractorService.pageList);
                             pageRepository.saveAll(pagesToSave);
                             NewLinkExtractorService.pageList.removeAll(pagesToSave);
                             pagesToSave.clear();
                             System.out.println("Links list: " + NewLinkExtractorService.links.size());
-                        }).start();
+                        }}).start();
                     }
                 }
                 changeSiteStatusToIndexed(site);
@@ -78,44 +85,29 @@ public class IndexingServiceImpl implements IndexingService {
 
         for (Site site : createdSites) {
             try {
-                pages.addAll(futures.get(site.getUrl()).get());
+                futures.get(site.getUrl()).get();
             } catch (InterruptedException | ExecutionException e) {
                 throw new RuntimeException(e);
             }
         }
-        System.out.println("page list size: " + pages.size());
-        pageRepository.saveAll(pages);
-
-//        for (Site site : createdSites) {
-//            isIndexing = true;
-////            new Thread(() -> updateIndexingTime(site)).start();
-//            NewLinkExtractorService linkExtractor = new NewLinkExtractorService(site.getUrl(),site);
-////            setUpLinkExtractorService(site,linkExtractor);
-//            ForkJoinPool forkJoinPool = new ForkJoinPool();
-//            System.out.println("before fjp");
-//            CopyOnWriteArraySet<Page> pages = forkJoinPool.invoke(linkExtractor);
-//            System.out.println("after fjp " + pages.isEmpty());
-////            assignSiteToPages(site);
-//            pages.forEach(x -> System.out.println("blaalala " + x.getSite()));
-//            pageRepository.saveAll(pages);
-//            isIndexing = false;
-//            changeSiteStatusToIndexed(site);
-////            resetLinkExtractor();
-////            System.out.println("Result " + result);
-//        }
-        return null;
-    }
-
-    private void assignSiteToPages(Site site) {
-        for (Page page : LinkExtractorService.pageList) {
-            page.setSite(site);
+        try {
+            pageRepository.saveAll(NewLinkExtractorService.pageList);
+        } catch (EntityNotFoundException e) {
+            indexingIsRunning = false;
+            System.out.println("ALKDNF:LADNFLKADLFNLAKDNDFLKNALKFLKASLKFN ]");
+            throw new RuntimeException(e);
         }
+        indexingIsRunning = false;
+        NewLinkExtractorService.links.clear();
+        NewLinkExtractorService.pageList.clear();
+        return new IndexingSuccessResponse(true);
     }
 
-    private void resetLinkExtractor() {
-        LinkExtractorService.pageList.clear();
-        LinkExtractorService.links.clear();
-        LinkExtractorService.currentSite = null;
+    public IndexingResponse stopIndexing() {
+        stopIndexing = true;
+        futures.forEach((x,y) -> y.cancel(true));
+
+        return new IndexingErrorResponse(false, "Indexing is stopped by user");
     }
 
     private void deleteSiteInfo(List<searchengine.config.Site> sitesToDelete) {
@@ -151,15 +143,13 @@ public class IndexingServiceImpl implements IndexingService {
     }
 
     private void changeSiteStatusToIndexed(Site site) {
-        if(!site.getStatus().equals(Status.FAILED.toString())) {
+        if(!site.getStatus().equals(Status.FAILED.toString()) && !stopIndexing) {
         site.setStatus(Status.INDEXED.toString());
         siteRepository.save(site);
+        }else {
+            site.setStatus(Status.FAILED.toString());
+            site.setLastError("Indexing is stopped by user");
+            siteRepository.save(site);
         }
-    }
-
-    private void setUpLinkExtractorService(Site site, LinkExtractorService linkExtractor) {
-        LinkExtractorService.setStartURL(site.getUrl());
-        LinkExtractorService.currentSite = site;
-        linkExtractor.setUrl(site.getUrl());
     }
 }
