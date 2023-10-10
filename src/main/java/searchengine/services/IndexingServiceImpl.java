@@ -1,7 +1,6 @@
 package searchengine.services;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 import searchengine.config.SitesList;
 import searchengine.dto.indexing.IndexingErrorResponse;
@@ -33,7 +32,7 @@ public class IndexingServiceImpl implements IndexingService {
 
     Map<String,Future> futures = new HashMap<>();
 
-    private boolean indexingIsRunning = false;
+    public static boolean indexingIsRunning = false;
     private boolean stopIndexing = false;
 
     @Autowired
@@ -46,7 +45,7 @@ public class IndexingServiceImpl implements IndexingService {
     @Override
     public IndexingResponse startIndexing() {
         if (indexingIsRunning) {
-            return new IndexingErrorResponse(false,"Indexing is already running");
+            return new IndexingErrorResponse(false,"Indexing is not finished yet");
         }
         indexingIsRunning = true;
         stopIndexing = false;
@@ -58,7 +57,7 @@ public class IndexingServiceImpl implements IndexingService {
 
         for (Site site : createdSites) {
             futures.put(site.getUrl(), executorService.submit( () -> {
-                NewLinkExtractorService linkExtractor = new NewLinkExtractorService(site.getUrl(), site);
+                LinkExtractorService linkExtractor = new LinkExtractorService(site.getUrl(), site);
                 return linkExtractor.invoke();
             }));
         }
@@ -67,15 +66,15 @@ public class IndexingServiceImpl implements IndexingService {
             new Thread(() -> {
                 while (!futures.get(site.getUrl()).isDone()) {
                     updateIndexingTime(site);
-                    System.out.println("size: " + NewLinkExtractorService.pageList.size());
-                    if(NewLinkExtractorService.pageList.size() > 100) {
+                    System.out.println("size: " + LinkExtractorService.pageList.size());
+                    if(LinkExtractorService.pageList.size() > 100) {
                         new Thread(() -> {
-                            synchronized (NewLinkExtractorService.pageList) {
-                            List<Page> pagesToSave = new ArrayList<>(NewLinkExtractorService.pageList);
+                            synchronized (LinkExtractorService.pageList) {
+                            List<Page> pagesToSave = new ArrayList<>(LinkExtractorService.pageList);
                             pageRepository.saveAll(pagesToSave);
-                            NewLinkExtractorService.pageList.removeAll(pagesToSave);
+                            LinkExtractorService.pageList.removeAll(pagesToSave);
                             pagesToSave.clear();
-                            System.out.println("Links list: " + NewLinkExtractorService.links.size());
+                            System.out.println("Links list: " + LinkExtractorService.links.size());
                         }}).start();
                     }
                 }
@@ -91,22 +90,20 @@ public class IndexingServiceImpl implements IndexingService {
             }
         }
         try {
-            pageRepository.saveAll(NewLinkExtractorService.pageList);
+            pageRepository.saveAll(LinkExtractorService.pageList);
         } catch (EntityNotFoundException e) {
             indexingIsRunning = false;
-            System.out.println("ALKDNF:LADNFLKADLFNLAKDNDFLKNALKFLKASLKFN ]");
             throw new RuntimeException(e);
         }
         indexingIsRunning = false;
-        NewLinkExtractorService.links.clear();
-        NewLinkExtractorService.pageList.clear();
+        LinkExtractorService.links.clear();
+        LinkExtractorService.pageList.clear();
         return new IndexingSuccessResponse(true);
     }
 
     public IndexingResponse stopIndexing() {
         stopIndexing = true;
         futures.forEach((x,y) -> y.cancel(true));
-
         return new IndexingErrorResponse(false, "Indexing is stopped by user");
     }
 

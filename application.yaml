@@ -18,8 +18,8 @@ indexing-settings:
   sites:
 #    - url: https://skillbox.ru/
 #      name: Skillbox
-    - url: https://playback.ru/
-      name: PlayBack.Ru
+#    - url: https://playback.ru/
+#      name: PlayBack.Ru
     - url: https://www.smallsitesbysarah.com/
       name: smallsitesbysarah
 #    - url: https://lenta.ru
