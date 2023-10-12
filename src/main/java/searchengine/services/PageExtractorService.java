@@ -1,18 +1,18 @@
 package searchengine.services;
 
+import lombok.NoArgsConstructor;
+import org.jetbrains.annotations.NotNull;
 import org.jsoup.Connection;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Service;
 import searchengine.model.Page;
 import searchengine.model.Site;
 import searchengine.model.Status;
 import searchengine.repositories.PageRepository;
-import searchengine.repositories.SiteRepository;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -23,38 +23,30 @@ import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.RecursiveAction;
 
 @Service
-public class LinkExtractorService extends RecursiveAction {
+@NoArgsConstructor
+public class PageExtractorService extends RecursiveAction {
 
     public static CopyOnWriteArraySet<String> links = new CopyOnWriteArraySet<>();
     public static final CopyOnWriteArraySet<Page> pageList = new CopyOnWriteArraySet<>();
     private Site site;
-    @Autowired
-    private static SiteRepository siteRepository;
     @Autowired
     private static PageRepository pageRepository;
     private Page page;
     private final String USER_AGENT = "Mozilla/5.0 (Windows; U; WindowsNT 5.1; en-US; rv1.8.1.6) Gecko/20070725 Firefox/2.0.0.6";
     private final String REFERER = "https://www.google.com";
 
-    @Autowired
-    private ApplicationContext applicationContext;
-
     @Override
     protected void compute() {
-        Set<LinkExtractorService> tasks = new HashSet<>();
+        Set<PageExtractorService> tasks = new HashSet<>();
         getLinks(tasks);
         tasks.forEach(ForkJoinTask::join);
     }
 
-    private void getLinks(Set<LinkExtractorService> tasks) {
+    private void getLinks(Set<PageExtractorService> tasks) {
         int responseCode = 418;
         Connection.Response response;
         try {
-            Thread.sleep(200);
-            response = Jsoup.connect(page.getPath())
-                                                .userAgent(USER_AGENT)
-                                                .referrer(REFERER)
-                                                .execute();
+            response = getResponse(page.getPath());
             responseCode = response.statusCode();
             Document document = response.parse();
             Elements elements = document.select("a[href]");
@@ -63,16 +55,27 @@ public class LinkExtractorService extends RecursiveAction {
                 String link = element.absUrl("href");
                 Page currentPage = new Page(link,responseCode,document.html(),site);
                 if(isValidPageLink(currentPage)) {
-                    LinkExtractorService extractorService = new LinkExtractorService(currentPage,site);
+                    PageExtractorService extractorService = new PageExtractorService(currentPage,site);
                     extractorService.fork();
                     tasks.add(extractorService);
-                    LinkExtractorService.links.add(link);
+                    PageExtractorService.links.add(link);
                     pageList.add(new Page(link.trim(),responseCode,document.html(),site));
                 }
             }
         } catch  (IOException | InterruptedException e) {
             pageRepository.save(new Page(page.getPath(), responseCode, String.valueOf(responseCode),site));
         }
+    }
+
+    @NotNull
+    private Connection.Response getResponse(String path) throws InterruptedException, IOException {
+        Connection.Response response;
+        Thread.sleep(200);
+        response = Jsoup.connect(path)
+                        .userAgent(USER_AGENT)
+                        .referrer(REFERER)
+                        .execute();
+        return response;
     }
 
     private boolean isValidPageLink(Page currentPage) {
@@ -83,29 +86,22 @@ public class LinkExtractorService extends RecursiveAction {
                 !link.endsWith(".png") &&
                 !link.endsWith(".pdf") &&
                 !link.contains("#") &&
-                !LinkExtractorService.links.contains(link);
+                !PageExtractorService.links.contains(link);
     }
 
-    @Autowired
-    public LinkExtractorService(SiteRepository siteRepository) {
-        LinkExtractorService.siteRepository = siteRepository;
-    }
-
-    public LinkExtractorService(Page page) {
+    public PageExtractorService(Page page) {
         this.page = page;
     }
 
-    public LinkExtractorService(Page page, Site site) {
+    public PageExtractorService(Page page, Site site) {
         this.site = site;
         this.page = page;
     }
 
-    public LinkExtractorService(String mainPagePath, Site site) {
+    public PageExtractorService(String mainPagePath, Site site) {
         try {
-            Connection.Response response = Jsoup.connect(mainPagePath)
-                    .userAgent(USER_AGENT)
-                    .referrer(REFERER)
-                    .execute();
+            Thread.sleep(200);
+            Connection.Response response = getResponse(mainPagePath);
             int responseCode = response.statusCode();
             Document document = response.parse();
             this.page = new Page(mainPagePath,responseCode,document.html(),site);
@@ -113,6 +109,8 @@ public class LinkExtractorService extends RecursiveAction {
         } catch (IOException e) {
             site.setLastError(Arrays.toString(e.getStackTrace()));
             site.setStatus(Status.FAILED.toString());
+            throw new RuntimeException(e);
+        } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
     }
