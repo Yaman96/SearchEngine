@@ -8,4 +8,5 @@ import searchengine.model.Site;
 @Repository
 public interface PageRepository extends CrudRepository<Page,Integer> {
     void deleteAllBySiteIs(Site site);
+    Page findByPath(String path);
 }

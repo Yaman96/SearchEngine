@@ -2,6 +2,8 @@ package searchengine.services;
 
 import org.apache.lucene.morphology.LuceneMorphology;
 import org.apache.lucene.morphology.russian.RussianLuceneMorphology;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -11,21 +13,20 @@ import java.util.*;
 public class LemmaFinderService {
 
     private final LuceneMorphology luceneMorphology;
-    private static final String HTML_TAG_REGEX = "<[^>]+>";
     private static final String WORD_TYPE_REGEX = "\\W\\w&&[^а-яА-Я\\s]";
     private static final String[] particlesNames = new String[]{"МЕЖД", "ПРЕДЛ", "СОЮЗ"};
 
-    public static LemmaFinderService getInstance() throws IOException {
-        LuceneMorphology morphology= new RussianLuceneMorphology();
-        return new LemmaFinderService(morphology);
+    LemmaFinderService() throws IOException {
+        luceneMorphology = new RussianLuceneMorphology();
     }
 
-    private LemmaFinderService(LuceneMorphology luceneMorphology) {
+    LemmaFinderService(LuceneMorphology luceneMorphology) {
         this.luceneMorphology = luceneMorphology;
     }
 
-    private LemmaFinderService(){
-        throw new RuntimeException("Disallow construct");
+    public static String extractVisibleText(String html) {
+        Document doc = Jsoup.parse(html);
+        return doc.text();
     }
 
     /**
@@ -35,7 +36,8 @@ public class LemmaFinderService {
      * @return ключ является леммой, а значение количеством найденных лемм
      */
     public Map<String, Integer> collectLemmas(String text) {
-        String[] words = arrayContainsRussianWords(text);
+        String cleanedText = extractVisibleText(text);
+        String[] words = arrayContainsRussianWords(cleanedText);
         HashMap<String, Integer> lemmas = new HashMap<>();
 
         for (String word : words) {
@@ -64,7 +66,6 @@ public class LemmaFinderService {
 
         return lemmas;
     }
-
 
     /**
      * @param text текст из которого собираем все леммы

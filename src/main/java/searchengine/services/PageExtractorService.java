@@ -32,8 +32,8 @@ public class PageExtractorService extends RecursiveAction {
     @Autowired
     private static PageRepository pageRepository;
     private Page page;
-    private final String USER_AGENT = "Mozilla/5.0 (Windows; U; WindowsNT 5.1; en-US; rv1.8.1.6) Gecko/20070725 Firefox/2.0.0.6";
-    private final String REFERER = "https://www.google.com";
+    private static final String USER_AGENT = "Mozilla/5.0 (Windows; U; WindowsNT 5.1; en-US; rv1.8.1.6) Gecko/20070725 Firefox/2.0.0.6";
+    private static final String REFERER = "https://www.google.com";
 
     @Override
     protected void compute() {
@@ -45,11 +45,13 @@ public class PageExtractorService extends RecursiveAction {
     private void getLinks(Set<PageExtractorService> tasks) {
         int responseCode = 418;
         Connection.Response response;
+        Document document;
+        Elements elements;
         try {
             response = getResponse(page.getPath());
             responseCode = response.statusCode();
-            Document document = response.parse();
-            Elements elements = document.select("a[href]");
+            document = response.parse();
+            elements = document.select("a[href]");
 
             for (Element element : elements) {
                 String link = element.absUrl("href");
@@ -68,7 +70,7 @@ public class PageExtractorService extends RecursiveAction {
     }
 
     @NotNull
-    private Connection.Response getResponse(String path) throws InterruptedException, IOException {
+    public static Connection.Response getResponse(String path) throws InterruptedException, IOException {
         Connection.Response response;
         Thread.sleep(200);
         response = Jsoup.connect(path)
@@ -78,6 +80,10 @@ public class PageExtractorService extends RecursiveAction {
         return response;
     }
 
+    public static String getHTML(Connection.Response response) throws IOException {
+        Document document = response.parse();
+        return document.html();
+    }
     private boolean isValidPageLink(Page currentPage) {
         String link = currentPage.getPath();
         return !link.isEmpty() &&
@@ -87,10 +93,6 @@ public class PageExtractorService extends RecursiveAction {
                 !link.endsWith(".pdf") &&
                 !link.contains("#") &&
                 !PageExtractorService.links.contains(link);
-    }
-
-    public PageExtractorService(Page page) {
-        this.page = page;
     }
 
     public PageExtractorService(Page page, Site site) {
