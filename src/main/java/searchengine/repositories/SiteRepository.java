@@ -8,7 +8,11 @@ import searchengine.model.Site;
 @Repository
 public interface SiteRepository extends CrudRepository<Site,Long> {
 
+    @Transactional
     Site findByNameContainsIgnoreCase(String siteName);
+
+    @Transactional
+    Site findByUrlStartingWith(String url);
 
     @Transactional
      void deleteByNameContainsIgnoreCase(String siteName);

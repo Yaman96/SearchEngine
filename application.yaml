@@ -20,12 +20,14 @@ indexing-settings:
 #      name: Skillbox
 #    - url: https://playback.ru/
 #      name: PlayBack.Ru
-    - url: https://www.smallsitesbysarah.com/
-      name: smallsitesbysarah
+#    - url: https://www.smallsitesbysarah.com/
+#      name: smallsitesbysarah
 #    - url: https://lenta.ru
 #      name: Лента.ру
 #    - url: https://www.bankrate.com/
 #      name: bankrate
+    - url: https://ipfran.ru/
+      name: ipfran
 
 logging:
   level:

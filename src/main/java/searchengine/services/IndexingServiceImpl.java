@@ -6,12 +6,9 @@ import org.springframework.stereotype.Service;
 import searchengine.config.SitesList;
 import searchengine.dto.indexing.IndexingErrorResponse;
 import searchengine.dto.indexing.IndexingResponse;
-
 import searchengine.dto.indexing.IndexingSuccessResponse;
-import searchengine.model.Lemma;
-import searchengine.model.Page;
-import searchengine.model.Site;
-import searchengine.model.Status;
+import searchengine.model.*;
+import searchengine.repositories.IndexRepository;
 import searchengine.repositories.LemmaRepository;
 import searchengine.repositories.PageRepository;
 import searchengine.repositories.SiteRepository;
@@ -21,11 +18,11 @@ import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.*;
+import java.util.*;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 @Service
 public class IndexingServiceImpl implements IndexingService {
@@ -35,24 +32,27 @@ public class IndexingServiceImpl implements IndexingService {
 
     private final PageRepository pageRepository;
 
+    private final LemmaRepository lemmaRepository;
+
+    private final IndexRepository indexRepository;
     private final PageExtractorPrototypeFactory pageExtractorPrototypeFactory;
 
     private final LemmaFinderService lemmaFinderService;
 
-    private final LemmaRepository lemmaRepository;
     private Map<String,Future> futures = new HashMap<>();
 
     public static boolean indexingIsRunning = false;
     private boolean stopIndexing = false;
 
     @Autowired
-    public IndexingServiceImpl(SiteRepository siteRepository, SitesList sitesFromConfig, PageRepository pageRepository, PageExtractorPrototypeFactory pageExtractorPrototypeFactory, LemmaFinderService lemmaFinderService, LemmaRepository lemmaRepository) {
+    public IndexingServiceImpl(SiteRepository siteRepository, SitesList sitesFromConfig, PageRepository pageRepository, PageExtractorPrototypeFactory pageExtractorPrototypeFactory, LemmaFinderService lemmaFinderService, LemmaRepository lemmaRepository, IndexRepository indexRepository) {
         this.siteRepository = siteRepository;
         this.pageRepository = pageRepository;
         this.sites = sitesFromConfig.getSites();
         this.pageExtractorPrototypeFactory = pageExtractorPrototypeFactory;
         this.lemmaFinderService = lemmaFinderService;
         this.lemmaRepository = lemmaRepository;
+        this.indexRepository = indexRepository;
     }
 
     @Override
@@ -83,7 +83,7 @@ public class IndexingServiceImpl implements IndexingService {
 
     @Override
     public IndexingResponse indexPage(String url) {
-        if(sites.stream().noneMatch(site -> site.getUrl().startsWith(url)))
+        if(sites.stream().noneMatch(site -> site.getUrl().startsWith(Objects.requireNonNull(getBaseUrl(url)))))
         {
             return new IndexingErrorResponse(false, "This page is outside the sites specified in the configuration file");
         }
@@ -101,23 +101,48 @@ public class IndexingServiceImpl implements IndexingService {
         Site site;
 
         if(HTML != null && !HTML.isEmpty() && !HTML.isBlank()) {
-            if(page != null) {
-                page.setCode(code);
-                page.setContent(HTML);
-                site = page.getSite();
-                //TODO check lemmas from the old page and compare with lemmas in new page.
-                // If a lemma that was in the old page doesn't exist in the new page then
-                // the frequency of the lemma must be decreased by 1
-            }else {
-                site = siteRepository.findByNameContainsIgnoreCase(getBaseUrl(url));
-                page = new Page(url,code,HTML,site);
-            }
+            Map<String, Integer> lemmaCountMapFromNewPage = lemmaFinderService.collectLemmas(HTML);
+            if (page != null) {
+                List<Index> oldPageIndexes = indexRepository.findAllByPageId(page.getId());
+                if(oldPageIndexes.size() == 0) {
+                    System.out.println("The page has not been indexed previously");
+                }
+                for (Index index : oldPageIndexes) {
+                    Optional<Lemma> lemmaOptional = lemmaRepository.findById(index.getLemmaId());
+                    if (lemmaOptional.isPresent()) {
+                        Lemma lemmaFromDB = lemmaOptional.get();
+                        String lemmaString = lemmaFromDB.getLemma();
 
-            pageRepository.save(page);
-            Map<String, Integer> lemmas = lemmaFinderService.collectLemmas(HTML);
-            ArrayList<Lemma> lemmaArrayList = new ArrayList<>();
-            lemmas.forEach((string, count) -> lemmaArrayList.add(new Lemma(site.getId(),string,1)));
-            lemmaRepository.saveAll(lemmaArrayList);
+                        if (lemmaCountMapFromNewPage.containsKey(lemmaString)) {
+                            int count = lemmaCountMapFromNewPage.get(lemmaString);
+                            index.setRank(count);
+                        }
+                    }
+                }
+            } else { //Если страницы не было нахой
+                site = siteRepository.findByUrlStartingWith(getBaseUrl(url));
+                page = new Page(url, code, HTML, site);
+                pageRepository.save(page);
+                long pageId = pageRepository.findByPath(url).getId();
+                List<Index> newIndexes = new ArrayList<>();
+                System.out.println("lemmaCountMapFromNewPage elements count: " + lemmaCountMapFromNewPage.size());
+                lemmaCountMapFromNewPage.forEach((lemmaString, count) -> {
+                    Optional<Lemma> lemmaOptional = lemmaRepository.findByLemmaEquals(lemmaString);
+                    if (lemmaOptional.isPresent()) {
+                        Lemma lemmaFromDB = lemmaOptional.get();
+                        lemmaFromDB.setFrequency(lemmaFromDB.getFrequency() + 1);
+                        lemmaRepository.save(lemmaFromDB);
+                        newIndexes.add(new Index(pageId, lemmaFromDB.getId(), count));
+                    } else {
+                        Lemma newLemma = new Lemma(site.getId(),lemmaString,1);
+                        lemmaRepository.save(newLemma);
+                        newLemma = lemmaRepository.findByLemmaEquals(lemmaString).get();
+                        Index newIndex = new Index(pageId,newLemma.getId(),count);
+                        indexRepository.save(newIndex);
+                    }
+                });
+                indexRepository.saveAll(newIndexes);
+            }
         }
 
         return null;
@@ -195,7 +220,13 @@ public class IndexingServiceImpl implements IndexingService {
     /*Deletes site from DB*/
     private void deleteSiteInfo(List<searchengine.config.Site> sitesToDelete) {
         for (searchengine.config.Site site: sitesToDelete) {
-            siteRepository.deleteByNameContainsIgnoreCase(site.getName());
+            Site siteFromDB = siteRepository.findByUrlStartingWith(site.getUrl());
+            for(Page page : siteFromDB.getPages()) {
+                indexRepository.deleteByPageId(page.getId());
+            }
+            lemmaRepository.deleteAllBySiteId(siteFromDB.getId());
+            pageRepository.deleteAllBySiteIs(siteFromDB);
+            siteRepository.deleteById(siteFromDB.getId());
         }
     }
 

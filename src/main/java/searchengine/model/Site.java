@@ -11,7 +11,6 @@ import java.util.List;
 @Entity
 @Table(name = "site")
 @Data
-@ToString
 public class Site {
 
     @Id
@@ -40,5 +39,17 @@ public class Site {
     //To avoid duplicates of sites in DB
     public void setName(String name) {
         this.name = name.toLowerCase();
+    }
+    @Override
+    public String toString() {
+        return "Site{" +
+                "id=" + id +
+                ", status='" + status + '\'' +
+                ", statusTime=" + statusTime +
+                ", lastError='" + lastError + '\'' +
+                ", url='" + url + '\'' +
+                ", name='" + name + '\'' +
+                ", pages=" + pages +
+                '}';
     }
 }

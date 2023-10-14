@@ -9,7 +9,6 @@ import javax.persistence.*;
 @Entity
 @Data
 @NoArgsConstructor
-@ToString
 public class Page {
 
     @Id
@@ -35,5 +34,16 @@ public class Page {
         this.code = code;
         this.content = content;
         this.site = site;
+    }
+
+    @Override
+    public String toString() {
+        return "Page{" +
+                "id=" + id +
+                ", site=" + site.getName() +
+                ", path='" + path + '\'' +
+                ", code=" + code +
+                ", content='" + content + '\'' +
+                '}';
     }
 }
