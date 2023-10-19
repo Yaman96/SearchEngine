@@ -12,4 +12,7 @@ public interface PageRepository extends CrudRepository<Page,Integer> {
     @Transactional
     void deleteAllBySiteIs(Site site);
     Page findByPath(String path);
+
+    @Transactional
+    int deleteById(long pageId);
 }

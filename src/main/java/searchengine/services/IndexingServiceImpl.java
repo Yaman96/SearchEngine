@@ -19,10 +19,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.*;
 
 @Service
 public class IndexingServiceImpl implements IndexingService {
@@ -39,7 +36,9 @@ public class IndexingServiceImpl implements IndexingService {
 
     private final LemmaFinderService lemmaFinderService;
 
-    private Map<String,Future> futures = new HashMap<>();
+    private Map<String, Future> futures = new HashMap<>();
+
+    private final HashSet<Thread> backgroundThreads = new HashSet<>();
 
     public static boolean indexingIsRunning = false;
     private boolean stopIndexing = false;
@@ -58,11 +57,10 @@ public class IndexingServiceImpl implements IndexingService {
     @Override
     public IndexingResponse startIndexing() {
         if (indexingIsRunning) {
-            return new IndexingErrorResponse(false,"Indexing is not finished yet");
+            return new IndexingErrorResponse(false, "Indexing is not finished yet");
         }
         indexingIsRunning = true;
         stopIndexing = false;
-        deleteSiteInfo(sites);
         List<Site> createdSites = createNewSites(sites);
 
         ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() - 1);
@@ -70,21 +68,43 @@ public class IndexingServiceImpl implements IndexingService {
 
         prepareFutures(createdSites, executorService);
         runActivityMonitoringThreads(createdSites);
+        deleteSiteInfo(sites);
         startFutures(createdSites);
         savePagesAndResetPageExtractorStaticFields();
         return new IndexingSuccessResponse(true);
     }
 
     public IndexingResponse stopIndexing() {
-        stopIndexing = true;
-        futures.forEach((x,y) -> y.cancel(true));
+        if (!indexingIsRunning) {
+            return new IndexingErrorResponse(false, "Nothing to stop. Indexing is not running.");
+        }
+        try {
+            stopIndexing = true;
+            indexingIsRunning = false;
+            System.out.println("backgroundThreads size: " + backgroundThreads.size());
+            backgroundThreads.forEach(Thread::interrupt);
+            futures.forEach((x, y) -> y.cancel(true));
+            while (true) {
+                if (backgroundThreads.stream().anyMatch(Thread::isAlive)) continue;
+                deleteSiteInfo(sites);
+                savePagesAndResetPageExtractorStaticFields();
+                break;
+            }
+            System.out.println("PageExtractorService.links.size(): " + PageExtractorService.links.size() + " PageExtractorService.pageList.size(): " +
+                    PageExtractorService.pageList.size());
+        } catch (Exception e) {
+            stopIndexing = false;
+            indexingIsRunning = true;
+            System.err.println("error occurred!");
+            e.printStackTrace();
+            return new IndexingErrorResponse(false, "Indexing is not stopped. An error occurred.");
+        }
         return new IndexingErrorResponse(false, "Indexing is stopped by user");
     }
 
     @Override
     public IndexingResponse indexPage(String url) {
-        if(sites.stream().noneMatch(site -> site.getUrl().startsWith(Objects.requireNonNull(getBaseUrl(url)))))
-        {
+        if (sites.stream().noneMatch(site -> site.getUrl().startsWith(Objects.requireNonNull(getBaseUrl(url))))) {
             return new IndexingErrorResponse(false, "This page is outside the sites specified in the configuration file");
         }
         String HTML = null;
@@ -100,11 +120,11 @@ public class IndexingServiceImpl implements IndexingService {
         Page page = pageRepository.findByPath(url);
         Site site;
 
-        if(HTML != null && !HTML.isEmpty() && !HTML.isBlank()) {
+        if (HTML != null && !HTML.isEmpty() && !HTML.isBlank()) {
             Map<String, Integer> lemmaCountMapFromNewPage = lemmaFinderService.collectLemmas(HTML);
             if (page != null) {
                 List<Index> oldPageIndexes = indexRepository.findAllByPageId(page.getId());
-                if(oldPageIndexes.size() == 0) {
+                if (oldPageIndexes.size() == 0) {
                     System.out.println("The page has not been indexed previously");
                 }
                 for (Index index : oldPageIndexes) {
@@ -134,23 +154,24 @@ public class IndexingServiceImpl implements IndexingService {
                         lemmaRepository.save(lemmaFromDB);
                         newIndexes.add(new Index(pageId, lemmaFromDB.getId(), count));
                     } else {
-                        Lemma newLemma = new Lemma(site.getId(),lemmaString,1);
+                        Lemma newLemma = new Lemma(site.getId(), lemmaString, 1);
                         lemmaRepository.save(newLemma);
                         newLemma = lemmaRepository.findByLemmaEquals(lemmaString).get();
-                        Index newIndex = new Index(pageId,newLemma.getId(),count);
+                        Index newIndex = new Index(pageId, newLemma.getId(), count);
                         indexRepository.save(newIndex);
                     }
                 });
                 indexRepository.saveAll(newIndexes);
             }
         }
-
         return null;
     }
 
     private void savePagesAndResetPageExtractorStaticFields() {
         try {
-            pageRepository.saveAll(PageExtractorService.pageList);
+            if (indexingIsRunning) {
+                pageRepository.saveAll(PageExtractorService.pageList);
+            }
         } catch (EntityNotFoundException e) {
             indexingIsRunning = false;
             throw new RuntimeException(e);
@@ -164,8 +185,8 @@ public class IndexingServiceImpl implements IndexingService {
         for (Site site : createdSites) {
             try {
                 futures.get(site.getUrl()).get();
-            } catch (InterruptedException | ExecutionException e) {
-                throw new RuntimeException(e);
+            } catch (InterruptedException | ExecutionException | CancellationException e) {
+                e.printStackTrace();
             }
         }
     }
@@ -192,25 +213,49 @@ public class IndexingServiceImpl implements IndexingService {
      * If true saves pages to DB and remove them from
      * LinkExtractorService.pageList
      */
-    private void pageListSizeMonitoring() {
-        if(PageExtractorService.pageList.size() > 100) {
-            new Thread(() -> {
+    private Thread pageListSizeMonitoring() {
+        Thread thread = null;
+        if (PageExtractorService.pageList.size() > 100) {
+            thread = new Thread(() -> {
+                if (Thread.currentThread().isInterrupted()) return;
+                List<Page> pagesToSave;
                 synchronized (PageExtractorService.pageList) {
-                List<Page> pagesToSave = new ArrayList<>(PageExtractorService.pageList);
-                pageRepository.saveAll(pagesToSave);
-                PageExtractorService.pageList.removeAll(pagesToSave);
+                    pagesToSave = new ArrayList<>(PageExtractorService.pageList);
+                    pageRepository.saveAll(pagesToSave);
+                    PageExtractorService.pageList.removeAll(pagesToSave);
+                    System.out.println("Links list: " + PageExtractorService.links.size());
+                }
+                pagesToSave.forEach(page -> {
+                    if (Thread.currentThread().isInterrupted()) return;
+                    Map<String, Integer> extractedLemmas = lemmaFinderService.collectLemmas(page.getContent());
+                    extractedLemmas.forEach((extractedLemma, count) -> {
+                        if(Thread.currentThread().isInterrupted()) return;
+                        Optional<Lemma> lemmaOptional = lemmaRepository.findByLemmaEquals(extractedLemma);
+                        Lemma lemma;
+                        if (lemmaOptional.isPresent()) {
+                            lemma = lemmaOptional.get();
+                            lemma.incrementFrequency();
+                        } else {
+                            lemma = new Lemma(page.getSite().getId(), extractedLemma, 1);
+                        }
+                        Lemma savedLemma = lemmaRepository.save(lemma);
+                        Index index = new Index(page.getId(), savedLemma.getId(), count);
+                        indexRepository.save(index);
+                    });
+                });
                 pagesToSave.clear();
-                System.out.println("Links list: " + PageExtractorService.links.size());
-            }}).start();
+            });
+            backgroundThreads.add(thread);
+            thread.start();
         }
+        return thread;
     }
     /*Creates futures with pageExtractors for each site*/
 
     private void prepareFutures(List<Site> createdSites, ExecutorService executorService) {
         for (Site site : createdSites) {
-            futures.put(site.getUrl(), executorService.submit( () -> {
-//                PageExtractorService pageExtractor = new PageExtractorService(site.getUrl(), site);
-                PageExtractorService pageExtractor = pageExtractorPrototypeFactory.createPageExtractorService(site.getUrl(),site);
+            futures.put(site.getUrl(), executorService.submit(() -> {
+                PageExtractorService pageExtractor = pageExtractorPrototypeFactory.createPageExtractorService(site.getUrl(), site);
                 return pageExtractor.invoke();
             }));
         }
@@ -219,27 +264,36 @@ public class IndexingServiceImpl implements IndexingService {
 
     /*Deletes site from DB*/
     private void deleteSiteInfo(List<searchengine.config.Site> sitesToDelete) {
-        for (searchengine.config.Site site: sitesToDelete) {
+        for (searchengine.config.Site site : sitesToDelete) {
             Site siteFromDB = siteRepository.findByUrlStartingWith(site.getUrl());
-            for(Page page : siteFromDB.getPages()) {
+            for (Page page : siteFromDB.getPages()) {
                 indexRepository.deleteByPageId(page.getId());
             }
             lemmaRepository.deleteAllBySiteId(siteFromDB.getId());
             pageRepository.deleteAllBySiteIs(siteFromDB);
-            siteRepository.deleteById(siteFromDB.getId());
+//            siteRepository.deleteById(siteFromDB.getId());
+//            siteRepository.save(siteFromDB);
         }
     }
 
     /*Creates model.Site objects from simple config.Site objects*/
     private List<Site> createNewSites(List<searchengine.config.Site> sitesFromConfigToCreate) {
         List<Site> createdSites = new ArrayList<>();
-        for (searchengine.config.Site site: sitesFromConfigToCreate) {
-            Site newSite = new Site();
-            newSite.setName(site.getName());
-            newSite.setUrl(site.getUrl());
-            newSite.setStatus(Status.INDEXING.toString());
-            newSite.setStatusTime(LocalDateTime.now());
-            createdSites.add(newSite);
+        for (searchengine.config.Site site : sitesFromConfigToCreate) {
+            Site newSite = siteRepository.findByNameContainsIgnoreCase(site.getName());
+            if (newSite == null) {
+                newSite = new Site();
+                newSite.setName(site.getName());
+                newSite.setUrl(site.getUrl());
+                newSite.setStatus(Status.INDEXING.toString());
+                newSite.setStatusTime(LocalDateTime.now());
+                createdSites.add(newSite);
+            } else {
+                newSite.setStatus(Status.INDEXING.toString());
+                newSite.setStatusTime(LocalDateTime.now());
+                newSite.setLastError("");
+                createdSites.add(newSite);
+            }
         }
         siteRepository.saveAll(createdSites);
         return createdSites;
@@ -248,21 +302,21 @@ public class IndexingServiceImpl implements IndexingService {
     //Update indexing time every 1 sec
     @SuppressWarnings("All")
     private void updateIndexingTime(Site site) {
-            site.setStatusTime(LocalDateTime.now());
-            siteRepository.save(site);
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
+        site.setStatusTime(LocalDateTime.now());
+        siteRepository.save(site);
+        try {
+            Thread.sleep(1000);
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     /*Changes site's status to INDEXED or FAILED*/
     private void changeSiteStatus(Site site) {
-        if(!site.getStatus().equals(Status.FAILED.toString()) && !stopIndexing) {
-        site.setStatus(Status.INDEXED.toString());
-        siteRepository.save(site);
-        }else {
+        if (!site.getStatus().equals(Status.FAILED.toString()) && !stopIndexing) {
+            site.setStatus(Status.INDEXED.toString());
+            siteRepository.save(site);
+        } else {
             site.setStatus(Status.FAILED.toString());
             site.setLastError("Indexing is stopped by user");
             siteRepository.save(site);

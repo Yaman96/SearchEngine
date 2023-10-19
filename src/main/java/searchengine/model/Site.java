@@ -33,7 +33,7 @@ public class Site {
     @Column(columnDefinition = "VARCHAR(255)", nullable = false)
     private String name;
 
-    @OneToMany(mappedBy = "site", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OneToMany(mappedBy = "site")
     private List<Page> pages = new ArrayList<>();
 
     //To avoid duplicates of sites in DB

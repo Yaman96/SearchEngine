@@ -30,4 +30,8 @@ public class Lemma {
 
     @Column(columnDefinition = "INT", nullable = false)
     private int frequency;
+
+    public void incrementFrequency() {
+        frequency++;
+    }
 }
