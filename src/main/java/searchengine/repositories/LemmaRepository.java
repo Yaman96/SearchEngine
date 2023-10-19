@@ -5,6 +5,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import searchengine.model.Lemma;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -26,6 +27,9 @@ public interface LemmaRepository extends CrudRepository<Lemma,Integer> {
             }
         });
     }
+
+    @Transactional
+    ArrayList<Lemma> findBySiteId(long siteId);
 
     @Transactional
     void deleteAllBySiteId(long siteId);
