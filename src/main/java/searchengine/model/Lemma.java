@@ -3,13 +3,14 @@ package searchengine.model;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.jetbrains.annotations.NotNull;
 
 import javax.persistence.*;
 
 @Entity
 @Data
 @NoArgsConstructor
-public class Lemma {
+public class Lemma implements Comparable<Lemma>{
 
     public Lemma(long siteId, String lemma, int frequency) {
         this.siteId = siteId;
@@ -33,5 +34,10 @@ public class Lemma {
 
     public void incrementFrequency() {
         frequency++;
+    }
+
+    @Override
+    public int compareTo(@NotNull Lemma o) {
+        return -Integer.compare(frequency,o.frequency);
     }
 }

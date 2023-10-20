@@ -65,12 +65,16 @@ public class IndexingServiceImpl implements IndexingService {
 
         ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() - 1);
         futures.clear();
-
-        prepareFutures(createdSites, executorService);
-        runActivityMonitoringThreads(createdSites);
-        deleteSiteInfo(sites);
-        startFutures(createdSites);
-        savePagesAndResetPageExtractorStaticFields();
+        try {
+            prepareFutures(createdSites, executorService);
+            runActivityMonitoringThreads(createdSites);
+            deleteSiteInfo(sites);
+            startFutures(createdSites);
+            savePagesAndResetPageExtractorStaticFields();
+        } catch (ExecutionException | InterruptedException | CancellationException e) {
+            savePagesAndResetPageExtractorStaticFields();
+            return new IndexingErrorResponse(false,"Indexing is stopped by user");
+        }
         return new IndexingSuccessResponse(true);
     }
 
@@ -99,7 +103,7 @@ public class IndexingServiceImpl implements IndexingService {
             e.printStackTrace();
             return new IndexingErrorResponse(false, "Indexing is not stopped. An error occurred.");
         }
-        return new IndexingErrorResponse(false, "Indexing is stopped by user");
+        return new IndexingSuccessResponse(true);
     }
 
     @Override
@@ -181,13 +185,9 @@ public class IndexingServiceImpl implements IndexingService {
         PageExtractorService.pageList.clear();
     }
 
-    private void startFutures(List<Site> createdSites) {
+    private void startFutures(List<Site> createdSites) throws ExecutionException, InterruptedException, CancellationException {
         for (Site site : createdSites) {
-            try {
                 futures.get(site.getUrl()).get();
-            } catch (InterruptedException | ExecutionException | CancellationException e) {
-                e.printStackTrace();
-            }
         }
     }
 

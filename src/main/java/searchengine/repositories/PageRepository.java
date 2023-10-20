@@ -15,4 +15,6 @@ public interface PageRepository extends CrudRepository<Page,Integer> {
 
     @Transactional
     int deleteById(long pageId);
+
+    Page findById(long pageId);
 }

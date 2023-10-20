@@ -15,4 +15,6 @@ public interface IndexRepository extends CrudRepository<Index,Integer> {
 
     @Transactional
     void deleteByPageId(long pageId);
+
+    ArrayList<Index> findAllByLemmaId(long lemmaId);
 }
