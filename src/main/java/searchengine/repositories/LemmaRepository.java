@@ -12,7 +12,10 @@ import java.util.Optional;
 @Repository
 public interface LemmaRepository extends CrudRepository<Lemma,Integer> {
 
+    @Transactional
     Optional<Lemma> findByLemmaEquals(String lemma);
+    @Transactional
+    Optional<Lemma> findByLemmaAndSiteId(String lemma, long siteId);
 
     Optional<Lemma> findById(long lemmaId);
     default void saveOrUpdateAll(List<Lemma> lemmaList) {

@@ -1,5 +1,4 @@
 package searchengine.dto.search;
 
-public class SearchResult {
-
+public interface SearchResult {
 }
