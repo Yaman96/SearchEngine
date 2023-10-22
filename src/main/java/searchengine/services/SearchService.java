@@ -6,5 +6,5 @@ import java.util.List;
 
 public interface SearchService {
 
-    public List<SearchResult> search(String query, String site, int offset, int limit);
+    SearchResult search(String query, String site, int offset, int limit);
 }

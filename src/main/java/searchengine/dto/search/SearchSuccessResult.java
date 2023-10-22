@@ -1,11 +1,16 @@
 package searchengine.dto.search;
 
+import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import java.util.List;
 
-@EqualsAndHashCode(callSuper = true)
 @Data
-public record SearchSuccessResult(boolean result, int count, List<SearchData> data) implements SearchResult {
+@AllArgsConstructor
+public class SearchSuccessResult implements SearchResult {
+
+    private boolean result;
+    private int count;
+    private List<SearchData> data;
 }

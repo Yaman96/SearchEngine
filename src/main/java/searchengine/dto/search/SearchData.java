@@ -1,9 +1,17 @@
 package searchengine.dto.search;
 
+import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
-@EqualsAndHashCode(callSuper = true)
 @Data
-public record SearchData(String site, String siteName, String uri, String title, String snippet, double relevance) {
+@AllArgsConstructor
+public class SearchData {
+
+    private String site;
+    private String siteName;
+    private String uri;
+    private String title;
+    private String snippet;
+    private double relevance;
 }

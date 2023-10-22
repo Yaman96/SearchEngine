@@ -3,13 +3,14 @@ package searchengine.model;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
+import org.jetbrains.annotations.NotNull;
 
 import javax.persistence.*;
 
 @Entity
 @Data
 @NoArgsConstructor
-public class Page {
+public class Page implements Comparable<Page>{
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -29,6 +30,9 @@ public class Page {
     @Column(columnDefinition = "MEDIUMTEXT", nullable = false)
     private String content;
 
+    @Transient
+    private double relevance;
+
     public Page(String path, int code, String content, Site site) {
         this.path = path;
         this.code = code;
@@ -45,5 +49,9 @@ public class Page {
                 ", code=" + code +
                 ", content='" + content + '\'' +
                 '}';
+    }
+    @Override
+    public int compareTo(@NotNull Page o) {
+        return -Double.compare(relevance, o.relevance);
     }
 }
