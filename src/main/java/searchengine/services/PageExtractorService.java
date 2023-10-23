@@ -15,9 +15,8 @@ import searchengine.model.Status;
 import searchengine.repositories.PageRepository;
 
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.*;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.RecursiveAction;
@@ -26,14 +25,16 @@ import java.util.concurrent.RecursiveAction;
 @NoArgsConstructor
 public class PageExtractorService extends RecursiveAction {
 
-    public static CopyOnWriteArraySet<String> links = new CopyOnWriteArraySet<>();
-    public static final CopyOnWriteArraySet<Page> pageList = new CopyOnWriteArraySet<>();
+    public final CopyOnWriteArraySet<String> links = new CopyOnWriteArraySet<>();
+    public final CopyOnWriteArraySet<Page> pageList = new CopyOnWriteArraySet<>();
     private Site site;
     @Autowired
     private static PageRepository pageRepository;
     private Page page;
     private static final String USER_AGENT = "Mozilla/5.0 (Windows; U; WindowsNT 5.1; en-US; rv1.8.1.6) Gecko/20070725 Firefox/2.0.0.6";
     private static final String REFERER = "https://www.google.com";
+
+    public static List<Thread> pageSavingThreads = new CopyOnWriteArrayList<>();
 
     @Override
     protected void compute() {
@@ -60,8 +61,13 @@ public class PageExtractorService extends RecursiveAction {
                     PageExtractorService extractorService = new PageExtractorService(currentPage,site);
                     extractorService.fork();
                     tasks.add(extractorService);
-                    PageExtractorService.links.add(link);
+                    links.add(link);
                     pageList.add(new Page(link.trim(),responseCode,document.html(),site));
+                    if(pageList.size() >= 200) {
+                        Thread thread = new Thread(this::savePages);
+                        pageSavingThreads.add(thread);
+                        thread.start();
+                    }
                 }
             }
         } catch  (IOException | InterruptedException e) {
@@ -92,7 +98,15 @@ public class PageExtractorService extends RecursiveAction {
                 !link.endsWith(".png") &&
                 !link.endsWith(".pdf") &&
                 !link.contains("#") &&
-                !PageExtractorService.links.contains(link);
+                !links.contains(link);
+    }
+
+    public void savePages() {
+        synchronized (pageList) {
+            List<Page> pagesToSave = new ArrayList<>(pageList);
+            pageRepository.saveAll(pagesToSave);
+            pageList.removeAll(pagesToSave);
+        }
     }
 
     public PageExtractorService(Page page, Site site) {

@@ -36,12 +36,19 @@ public class IndexingServiceImpl implements IndexingService {
 
     private final LemmaFinderService lemmaFinderService;
 
-    private Map<String, Future> futures = new HashMap<>();
+    private final Map<Site, Callable<Void>> tasks = new ConcurrentHashMap<>();
+
+    private final ConcurrentHashMap<String, Future<Void>> tasksFutures = new ConcurrentHashMap<>();
 
     private final HashSet<Thread> backgroundThreads = new HashSet<>();
 
-    public static boolean indexingIsRunning = false;
-    private boolean stopIndexing = false;
+    private final List<Thread> updatingIndexingTimeThreads = new CopyOnWriteArrayList<>();
+
+    ConcurrentHashMap<Site, Thread> MAIN_THREADS = new ConcurrentHashMap<>();
+
+    ConcurrentHashMap<Site, ForkJoinPool> FORK_JOIN_POOLS = new ConcurrentHashMap<>();
+    public static volatile boolean indexingIsRunning = false;
+    private static volatile boolean stopIndexing = false;
 
     @Autowired
     public IndexingServiceImpl(SiteRepository siteRepository, SitesList sitesFromConfig, PageRepository pageRepository, PageExtractorPrototypeFactory pageExtractorPrototypeFactory, LemmaFinderService lemmaFinderService, LemmaRepository lemmaRepository, IndexRepository indexRepository) {
@@ -61,19 +68,35 @@ public class IndexingServiceImpl implements IndexingService {
         }
         indexingIsRunning = true;
         stopIndexing = false;
+        tasks.clear();
+        deleteSiteInfo(sites);
         List<Site> createdSites = createNewSites(sites);
+        for (Site site : createdSites) {
+            Thread thread = new Thread(() -> {
+                ForkJoinPool forkJoinPool = new ForkJoinPool(10);
+                PageExtractorService task = new PageExtractorService(site.getUrl(), site);
+                FORK_JOIN_POOLS.put(site, forkJoinPool);
+                forkJoinPool.invoke(task);
+                task.savePages();
+                ArrayList<Long> pagesId = pageRepository.getPagesIdBySiteId(site.getId());
 
-        ExecutorService executorService = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors() - 1);
-        futures.clear();
+            });
+            MAIN_THREADS.put(site, thread);
+            thread.start();
+        }
+        updateIndexingTime();
+        ExecutorService executorService = Executors.newFixedThreadPool(5);
+
         try {
-            prepareFutures(createdSites, executorService);
-            runActivityMonitoringThreads(createdSites);
             deleteSiteInfo(sites);
-            startFutures(createdSites);
+            invokeTask(createdSites);
+            tasksFutures = startTasks(executorService);
+//            runActivityMonitoringThreads(createdSites);
             savePagesAndResetPageExtractorStaticFields();
+            changeSiteStatus();
         } catch (ExecutionException | InterruptedException | CancellationException e) {
             savePagesAndResetPageExtractorStaticFields();
-            return new IndexingErrorResponse(false,"Indexing is stopped by user");
+            return new IndexingErrorResponse(false, "Indexing is stopped by user");
         }
         return new IndexingSuccessResponse(true);
     }
@@ -87,7 +110,7 @@ public class IndexingServiceImpl implements IndexingService {
             indexingIsRunning = false;
             System.out.println("backgroundThreads size: " + backgroundThreads.size());
             backgroundThreads.forEach(Thread::interrupt);
-            futures.forEach((x, y) -> y.cancel(true));
+            tasks.forEach((x, y) -> y.cancel(true));
             while (true) {
                 if (backgroundThreads.stream().anyMatch(Thread::isAlive)) continue;
                 deleteSiteInfo(sites);
@@ -171,7 +194,17 @@ public class IndexingServiceImpl implements IndexingService {
         return null;
     }
 
+    @SuppressWarnings("all")
     private void savePagesAndResetPageExtractorStaticFields() {
+        List<Future<Void>> futures = new ArrayList<>(tasksFutures.values());
+        while (futures.stream().anyMatch(f -> !f.isDone()) || PageExtractorService.pageSavingThreads.stream().anyMatch(Thread::isAlive)) {
+            System.out.println("savePagesAndResetPageExtractorStaticFields is waiting...");
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
         try {
             if (indexingIsRunning) {
                 pageRepository.saveAll(PageExtractorService.pageList);
@@ -185,27 +218,37 @@ public class IndexingServiceImpl implements IndexingService {
         PageExtractorService.pageList.clear();
     }
 
-    private void startFutures(List<Site> createdSites) throws ExecutionException, InterruptedException, CancellationException {
-        for (Site site : createdSites) {
-                futures.get(site.getUrl()).get();
-        }
+    private void startTasks(Site site, ExecutorService executorService) throws ExecutionException, InterruptedException, CancellationException {
+        Callable<Void> task = tasks.get(site);
+        List<Future<Void>> tasksFuturesList = executorService.invokeAll(tasksList);
+        Iterator<Future<Void>> tasksFuturesListIterator = tasksFuturesList.iterator();
+        tasks.forEach((siteName, task) -> {
+            taskFutures.put(siteName, tasksFuturesListIterator.next());
+        });
+        return taskFutures;
+//        for (Site site : createdSites) {
+//            futures.get(site.getUrl()).get();
+//        }
     }
 
     /**
      * Create and run threads for updating sites indexing time and
      * saves extracted pages if pageList size > 100 to prevent Java Heap exception
      */
-    private void runActivityMonitoringThreads(List<Site> createdSites) {
+    private ArrayList<Thread> runActivityMonitoringThreads(List<Site> createdSites) {
+        ArrayList<Thread> activityMonitoringThreads = new ArrayList<>();
         for (Site site : createdSites) {
-            new Thread(() -> {
-                while (!futures.get(site.getUrl()).isDone()) {
-                    updateIndexingTime(site);
-                    System.out.println("size: " + PageExtractorService.pageList.size());
+            Thread thread = new Thread(() -> {
+                while (!tasksFutures.get(site.getUrl()).isDone() || PageExtractorService.pageSavingThreads.stream().anyMatch(Thread::isAlive)) {
+                    System.out.println("PageExtractorService.pageList.size(): " + PageExtractorService.pageList.size());
                     pageListSizeMonitoring();
                 }
-                changeSiteStatus(site);
-            }).start();
+//                changeSiteStatus(site);
+            });
+            activityMonitoringThreads.add(thread);
+            thread.start();
         }
+        return activityMonitoringThreads;
     }
 
     /**
@@ -229,7 +272,7 @@ public class IndexingServiceImpl implements IndexingService {
                     if (Thread.currentThread().isInterrupted()) return;
                     Map<String, Integer> extractedLemmas = lemmaFinderService.collectLemmas(page.getContent());
                     extractedLemmas.forEach((extractedLemma, count) -> {
-                        if(Thread.currentThread().isInterrupted()) return;
+                        if (Thread.currentThread().isInterrupted()) return;
                         Optional<Lemma> lemmaOptional = lemmaRepository.findByLemmaEquals(extractedLemma);
                         Lemma lemma;
                         if (lemmaOptional.isPresent()) {
@@ -252,13 +295,9 @@ public class IndexingServiceImpl implements IndexingService {
     }
     /*Creates futures with pageExtractors for each site*/
 
-    private void prepareFutures(List<Site> createdSites, ExecutorService executorService) {
-        for (Site site : createdSites) {
-            futures.put(site.getUrl(), executorService.submit(() -> {
-                PageExtractorService pageExtractor = pageExtractorPrototypeFactory.createPageExtractorService(site.getUrl(), site);
-                return pageExtractor.invoke();
-            }));
-        }
+    private void invokeTask(Site site, ForkJoinPool forkJoinPool) {
+        ForkJoinTask<Void> task = pageExtractorPrototypeFactory.createPageExtractorService(site.getUrl(), site);
+        forkJoinPool.invoke(task);
     }
     /*Stops indexing process*/
 
@@ -299,16 +338,42 @@ public class IndexingServiceImpl implements IndexingService {
         return createdSites;
     }
 
-    //Update indexing time every 1 sec
+    //Update indexing time every 2 sec
     @SuppressWarnings("All")
-    private void updateIndexingTime(Site site) {
-        site.setStatusTime(LocalDateTime.now());
-        siteRepository.save(site);
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
+    private void updateIndexingTime() {
+        MAIN_THREADS.forEach((site, thread) -> {
+            Thread updateThread = new Thread(() -> {
+                while (thread.isAlive()) {
+                    site.setStatusTime(LocalDateTime.now());
+                    siteRepository.save(site);
+                    try {
+                        Thread.sleep(1000);
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    }
+                }
+            });
+        });
+//        List<Thread> updateIndexingTimeThreads = new CopyOnWriteArrayList<>();
+//        for (Site site : sites) {
+//            Thread thread = new Thread(() -> {
+//                while (!Thread.currentThread().isInterrupted()) {
+//                    if(tasksFutures.get(site.getName()).isDone()) {
+//                        changeSiteStatus(site);
+//                        break;
+//                    }
+//                    site.setStatusTime(LocalDateTime.now());
+//                    siteRepository.save(site);
+//                    try {
+//                        Thread.sleep(2000);
+//                    } catch (InterruptedException e) {
+//                        throw new RuntimeException(e);
+//                    }
+//                }
+//            });
+//            thread.start();
+//            updateIndexingTimeThreads.add(thread);
+//        }
     }
 
     /*Changes site's status to INDEXED or FAILED*/
@@ -332,6 +397,28 @@ public class IndexingServiceImpl implements IndexingService {
         } catch (URISyntaxException e) {
             e.printStackTrace();
             return null;
+        }
+    }
+
+    private ArrayList<ArrayList<Long>> getPageIdListBatches(List<Long> pagesId) {
+        ArrayList<ArrayList<Long>> batches = new ArrayList<>();
+        int batchSize = 50;
+        int total = pagesId.size();
+        for (int i = 0; i < total; i += batchSize) {
+            int endIndex = Math.min(i + batchSize, total);
+            ArrayList<Long> batch = new ArrayList<>(pagesId.subList(i, endIndex));
+            batches.add(batch);
+        }
+        return batches;
+    }
+
+    private void createIndexes(List<Long> batch, Site site) {
+        List<Page> savedPages = new ArrayList<>();
+        batch.forEach(pageId -> savedPages.add(pageRepository.findById(pageId)));
+
+        for (Page page : savedPages) {
+            Map<String, Integer> lemma_Count = lemmaFinderService.collectLemmas(page.getContent());
+
         }
     }
 }

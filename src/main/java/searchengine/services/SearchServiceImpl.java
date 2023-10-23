@@ -32,7 +32,7 @@ public class SearchServiceImpl implements SearchService {
     private final PageRepository pageRepository;
     private final IndexRepository indexRepository;
     private final SnippetFinderImpl snippetFinder;
-    private final ConcurrentHashMap<Page, Double> pageRelevance = new ConcurrentHashMap<>();
+    private final Map<Page, Double> pageRelevance = new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<Double> relevanceList = new CopyOnWriteArrayList<>();
     private final Set<Long> pagesListIds = new HashSet<>();
     private Thread preparePageRelevanceThread;
