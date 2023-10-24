@@ -8,12 +8,8 @@ import searchengine.dto.indexing.IndexingErrorResponse;
 import searchengine.dto.indexing.IndexingResponse;
 import searchengine.dto.indexing.IndexingSuccessResponse;
 import searchengine.model.*;
-import searchengine.repositories.IndexRepository;
-import searchengine.repositories.LemmaRepository;
-import searchengine.repositories.PageRepository;
-import searchengine.repositories.SiteRepository;
+import searchengine.repositories.*;
 
-import javax.persistence.EntityNotFoundException;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -25,40 +21,30 @@ import java.util.concurrent.*;
 public class IndexingServiceImpl implements IndexingService {
 
     private final List<searchengine.config.Site> sites;
+    private List<Site> createdSites;
     private final SiteRepository siteRepository;
-
     private final PageRepository pageRepository;
-
     private final LemmaRepository lemmaRepository;
-
     private final IndexRepository indexRepository;
-    private final PageExtractorPrototypeFactory pageExtractorPrototypeFactory;
-
+    private final IndexJdbcRepositoryImpl indexJdbcRepository;
     private final LemmaFinderService lemmaFinderService;
-
-    private final Map<Site, Callable<Void>> tasks = new ConcurrentHashMap<>();
-
-    private final ConcurrentHashMap<String, Future<Void>> tasksFutures = new ConcurrentHashMap<>();
-
-    private final HashSet<Thread> backgroundThreads = new HashSet<>();
-
-    private final List<Thread> updatingIndexingTimeThreads = new CopyOnWriteArrayList<>();
-
-    ConcurrentHashMap<Site, Thread> MAIN_THREADS = new ConcurrentHashMap<>();
-
-    ConcurrentHashMap<Site, ForkJoinPool> FORK_JOIN_POOLS = new ConcurrentHashMap<>();
-    public static volatile boolean indexingIsRunning = false;
+    private final ConcurrentHashMap<Site, Thread> MAIN_THREADS = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Site, ForkJoinPool> FORK_JOIN_POOLS = new ConcurrentHashMap<>();
+    private final HashSet<Site> STOPPED_SITES = new HashSet<>();
+    private final static Map<Site, Boolean> SITE_ERROR = new ConcurrentHashMap<>();
+    private static volatile boolean indexingIsRunning = false;
     private static volatile boolean stopIndexing = false;
 
+
     @Autowired
-    public IndexingServiceImpl(SiteRepository siteRepository, SitesList sitesFromConfig, PageRepository pageRepository, PageExtractorPrototypeFactory pageExtractorPrototypeFactory, LemmaFinderService lemmaFinderService, LemmaRepository lemmaRepository, IndexRepository indexRepository) {
+    public IndexingServiceImpl(SiteRepository siteRepository, SitesList sitesFromConfig, PageRepository pageRepository, LemmaFinderService lemmaFinderService, LemmaRepository lemmaRepository, IndexRepository indexRepository, IndexJdbcRepositoryImpl indexJdbcRepository) {
         this.siteRepository = siteRepository;
         this.pageRepository = pageRepository;
         this.sites = sitesFromConfig.getSites();
-        this.pageExtractorPrototypeFactory = pageExtractorPrototypeFactory;
         this.lemmaFinderService = lemmaFinderService;
         this.lemmaRepository = lemmaRepository;
         this.indexRepository = indexRepository;
+        this.indexJdbcRepository = indexJdbcRepository;
     }
 
     @Override
@@ -68,65 +54,99 @@ public class IndexingServiceImpl implements IndexingService {
         }
         indexingIsRunning = true;
         stopIndexing = false;
-        tasks.clear();
-        deleteSiteInfo(sites);
-        List<Site> createdSites = createNewSites(sites);
+        clearAllMapsAndListsAfterPerviousIndexing();
+        createdSites = createNewSites(sites);
+        deleteSiteInfo(createdSites.get(0), true);
         for (Site site : createdSites) {
             Thread thread = new Thread(() -> {
-                ForkJoinPool forkJoinPool = new ForkJoinPool(10);
-                PageExtractorService task = new PageExtractorService(site.getUrl(), site);
-                FORK_JOIN_POOLS.put(site, forkJoinPool);
-                forkJoinPool.invoke(task);
-                task.savePages();
-                ArrayList<Long> pagesId = pageRepository.getPagesIdBySiteId(site.getId());
-
+                try {
+                    ForkJoinPool forkJoinPool = new ForkJoinPool(3);
+                    PageExtractorService task = new PageExtractorService(site.getUrl(), site, pageRepository);
+                    savePagesEvery200pages(task);
+                    FORK_JOIN_POOLS.put(site, forkJoinPool);
+                    forkJoinPool.invoke(task);
+                    if (!forkJoinPool.isShutdown() || !Thread.currentThread().isInterrupted()) {
+                        task.savePages();
+                        ArrayList<Long> pagesId = pageRepository.getPagesIdBySiteId(site.getId());
+                        ArrayList<ArrayList<Long>> pageIdListBatches = getPageIdListBatches(pagesId);
+                        for (ArrayList<Long> batch : pageIdListBatches) {
+                            createLemmasAndIndexes(batch, site);
+                        }
+                    } else {
+                        System.out.println("inside search() current thread is interrupted");
+                        if (!STOPPED_SITES.contains(site)) {
+                            SITE_ERROR.put(site, true);
+                        }
+                    }
+                } catch (Exception e) {
+                    SITE_ERROR.put(site, true);
+                }
             });
             MAIN_THREADS.put(site, thread);
-            thread.start();
         }
-        updateIndexingTime();
-        ExecutorService executorService = Executors.newFixedThreadPool(5);
-
-        try {
-            deleteSiteInfo(sites);
-            invokeTask(createdSites);
-            tasksFutures = startTasks(executorService);
-//            runActivityMonitoringThreads(createdSites);
-            savePagesAndResetPageExtractorStaticFields();
-            changeSiteStatus();
-        } catch (ExecutionException | InterruptedException | CancellationException e) {
-            savePagesAndResetPageExtractorStaticFields();
-            return new IndexingErrorResponse(false, "Indexing is stopped by user");
+        MAIN_THREADS.forEach((site, thread) -> {
+            thread.start();
+            updateIndexingTime(site, thread);
+        });
+        awaitThreadFinish();
+        createdSites.forEach(this::changeSiteStatus);
+        if (SITE_ERROR.values().stream().allMatch(error -> error.equals(true))) {
+            return new IndexingErrorResponse(false, "No site has been indexed. An error occurred during the indexing of all sites. Or indexing was stopped by user");
+        }
+        if (SITE_ERROR.values().stream().anyMatch(error -> error.equals(true))) {
+            return new IndexingErrorResponse(true, "Not all sites has been indexed");
         }
         return new IndexingSuccessResponse(true);
     }
 
-    public IndexingResponse stopIndexing() {
+    private void clearAllMapsAndListsAfterPerviousIndexing() {
+        MAIN_THREADS.clear();
+        FORK_JOIN_POOLS.clear();
+        STOPPED_SITES.clear();
+        SITE_ERROR.clear();
+    }
+
+    public IndexingResponse stopIndexing(Long siteId) {
         if (!indexingIsRunning) {
             return new IndexingErrorResponse(false, "Nothing to stop. Indexing is not running.");
         }
         try {
-            stopIndexing = true;
-            indexingIsRunning = false;
-            System.out.println("backgroundThreads size: " + backgroundThreads.size());
-            backgroundThreads.forEach(Thread::interrupt);
-            tasks.forEach((x, y) -> y.cancel(true));
-            while (true) {
-                if (backgroundThreads.stream().anyMatch(Thread::isAlive)) continue;
-                deleteSiteInfo(sites);
-                savePagesAndResetPageExtractorStaticFields();
-                break;
+            if (siteId != null) {
+                Optional<Site> siteOptional = createdSites.stream().filter(s -> s.getId() == siteId).findFirst();
+                Site site;
+                if (siteOptional.isPresent()) {
+                    site = siteOptional.get();
+                } else {
+                    return new IndexingErrorResponse(false, "There is no such site. Incorrect siteId");
+                }
+                if (createdSites.size() - STOPPED_SITES.size() > 1) {
+                    stopIndexing = false;
+                    indexingIsRunning = true;
+                } else {
+                    stopIndexing = true;
+                    indexingIsRunning = false;
+                }
+                MAIN_THREADS.get(site).interrupt();
+                FORK_JOIN_POOLS.get(site).shutdownNow();
+                STOPPED_SITES.add(site);
+                deleteSiteInfo(site, false);
+                return new IndexingSuccessResponse(true);
+            } else {
+                stopIndexing = true;
+                indexingIsRunning = false;
+                STOPPED_SITES.addAll(createdSites);
+                MAIN_THREADS.forEach((site, thread) -> thread.interrupt());
+                FORK_JOIN_POOLS.forEach((site, fjp) -> fjp.shutdownNow());
+                deleteSiteInfo(null, true);
+                return new IndexingSuccessResponse(true);
             }
-            System.out.println("PageExtractorService.links.size(): " + PageExtractorService.links.size() + " PageExtractorService.pageList.size(): " +
-                    PageExtractorService.pageList.size());
         } catch (Exception e) {
             stopIndexing = false;
             indexingIsRunning = true;
-            System.err.println("error occurred!");
-            e.printStackTrace();
-            return new IndexingErrorResponse(false, "Indexing is not stopped. An error occurred.");
+            System.err.println(Arrays.toString(e.getStackTrace()));
+            throw new RuntimeException(e);
+//            return new IndexingErrorResponse(false, "Indexing is not stopped. An error occurred. Error: " + Arrays.toString(e.getStackTrace()));
         }
-        return new IndexingSuccessResponse(true);
     }
 
     @Override
@@ -191,128 +211,22 @@ public class IndexingServiceImpl implements IndexingService {
                 indexRepository.saveAll(newIndexes);
             }
         }
-        return null;
+        return new IndexingSuccessResponse(true);
     }
-
-    @SuppressWarnings("all")
-    private void savePagesAndResetPageExtractorStaticFields() {
-        List<Future<Void>> futures = new ArrayList<>(tasksFutures.values());
-        while (futures.stream().anyMatch(f -> !f.isDone()) || PageExtractorService.pageSavingThreads.stream().anyMatch(Thread::isAlive)) {
-            System.out.println("savePagesAndResetPageExtractorStaticFields is waiting...");
-            try {
-                Thread.sleep(2000);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-        }
-        try {
-            if (indexingIsRunning) {
-                pageRepository.saveAll(PageExtractorService.pageList);
-            }
-        } catch (EntityNotFoundException e) {
-            indexingIsRunning = false;
-            throw new RuntimeException(e);
-        }
-        indexingIsRunning = false;
-        PageExtractorService.links.clear();
-        PageExtractorService.pageList.clear();
-    }
-
-    private void startTasks(Site site, ExecutorService executorService) throws ExecutionException, InterruptedException, CancellationException {
-        Callable<Void> task = tasks.get(site);
-        List<Future<Void>> tasksFuturesList = executorService.invokeAll(tasksList);
-        Iterator<Future<Void>> tasksFuturesListIterator = tasksFuturesList.iterator();
-        tasks.forEach((siteName, task) -> {
-            taskFutures.put(siteName, tasksFuturesListIterator.next());
-        });
-        return taskFutures;
-//        for (Site site : createdSites) {
-//            futures.get(site.getUrl()).get();
-//        }
-    }
-
-    /**
-     * Create and run threads for updating sites indexing time and
-     * saves extracted pages if pageList size > 100 to prevent Java Heap exception
-     */
-    private ArrayList<Thread> runActivityMonitoringThreads(List<Site> createdSites) {
-        ArrayList<Thread> activityMonitoringThreads = new ArrayList<>();
-        for (Site site : createdSites) {
-            Thread thread = new Thread(() -> {
-                while (!tasksFutures.get(site.getUrl()).isDone() || PageExtractorService.pageSavingThreads.stream().anyMatch(Thread::isAlive)) {
-                    System.out.println("PageExtractorService.pageList.size(): " + PageExtractorService.pageList.size());
-                    pageListSizeMonitoring();
-                }
-//                changeSiteStatus(site);
-            });
-            activityMonitoringThreads.add(thread);
-            thread.start();
-        }
-        return activityMonitoringThreads;
-    }
-
-    /**
-     * Checks if LinkExtractorService.pageList.size() > 100.
-     * If true saves pages to DB and remove them from
-     * LinkExtractorService.pageList
-     */
-    private Thread pageListSizeMonitoring() {
-        Thread thread = null;
-        if (PageExtractorService.pageList.size() > 100) {
-            thread = new Thread(() -> {
-                if (Thread.currentThread().isInterrupted()) return;
-                List<Page> pagesToSave;
-                synchronized (PageExtractorService.pageList) {
-                    pagesToSave = new ArrayList<>(PageExtractorService.pageList);
-                    pageRepository.saveAll(pagesToSave);
-                    PageExtractorService.pageList.removeAll(pagesToSave);
-                    System.out.println("Links list: " + PageExtractorService.links.size());
-                }
-                pagesToSave.forEach(page -> {
-                    if (Thread.currentThread().isInterrupted()) return;
-                    Map<String, Integer> extractedLemmas = lemmaFinderService.collectLemmas(page.getContent());
-                    extractedLemmas.forEach((extractedLemma, count) -> {
-                        if (Thread.currentThread().isInterrupted()) return;
-                        Optional<Lemma> lemmaOptional = lemmaRepository.findByLemmaEquals(extractedLemma);
-                        Lemma lemma;
-                        if (lemmaOptional.isPresent()) {
-                            lemma = lemmaOptional.get();
-                            lemma.incrementFrequency();
-                        } else {
-                            lemma = new Lemma(page.getSite().getId(), extractedLemma, 1);
-                        }
-                        Lemma savedLemma = lemmaRepository.save(lemma);
-                        Index index = new Index(page.getId(), savedLemma.getId(), count);
-                        indexRepository.save(index);
-                    });
-                });
-                pagesToSave.clear();
-            });
-            backgroundThreads.add(thread);
-            thread.start();
-        }
-        return thread;
-    }
-    /*Creates futures with pageExtractors for each site*/
-
-    private void invokeTask(Site site, ForkJoinPool forkJoinPool) {
-        ForkJoinTask<Void> task = pageExtractorPrototypeFactory.createPageExtractorService(site.getUrl(), site);
-        forkJoinPool.invoke(task);
-    }
-    /*Stops indexing process*/
 
     /*Deletes site from DB*/
-    private void deleteSiteInfo(List<searchengine.config.Site> sitesToDelete) {
-        for (searchengine.config.Site site : sitesToDelete) {
-            Site siteFromDB = siteRepository.findByUrlStartingWith(site.getUrl());
-            for (Page page : siteFromDB.getPages()) {
-                indexRepository.deleteByPageId(page.getId());
-            }
-            lemmaRepository.deleteAllBySiteId(siteFromDB.getId());
-            pageRepository.deleteAllBySiteIs(siteFromDB);
-//            siteRepository.deleteById(siteFromDB.getId());
-//            siteRepository.save(siteFromDB);
+    private void deleteSiteInfo(Site site, boolean deleteAll) {
+        if (deleteAll) {
+            indexRepository.deleteAllIndexes();
+            lemmaRepository.deleteAllLemmas();
+            pageRepository.deleteAll();
+            return;
         }
+        for (Page page : site.getPages()) {
+            indexRepository.deleteByPageId(page.getId());
+        }
+        lemmaRepository.deleteAllBySiteId(site.getId());
+        pageRepository.deleteAllBySiteIs(site);
     }
 
     /*Creates model.Site objects from simple config.Site objects*/
@@ -326,64 +240,58 @@ public class IndexingServiceImpl implements IndexingService {
                 newSite.setUrl(site.getUrl());
                 newSite.setStatus(Status.INDEXING.toString());
                 newSite.setStatusTime(LocalDateTime.now());
-                createdSites.add(newSite);
+                createdSites.add(siteRepository.save(newSite));
             } else {
                 newSite.setStatus(Status.INDEXING.toString());
                 newSite.setStatusTime(LocalDateTime.now());
                 newSite.setLastError("");
-                createdSites.add(newSite);
+                createdSites.add(siteRepository.save(newSite));
             }
         }
-        siteRepository.saveAll(createdSites);
         return createdSites;
     }
 
     //Update indexing time every 2 sec
     @SuppressWarnings("All")
-    private void updateIndexingTime() {
-        MAIN_THREADS.forEach((site, thread) -> {
-            Thread updateThread = new Thread(() -> {
-                while (thread.isAlive()) {
-                    site.setStatusTime(LocalDateTime.now());
-                    siteRepository.save(site);
-                    try {
-                        Thread.sleep(1000);
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
+    private void updateIndexingTime(Site currentSite, Thread currentThread) {
+        Thread updateThread = new Thread(() -> {
+            while (currentThread.isAlive()) {
+                currentSite.setStatusTime(LocalDateTime.now());
+                siteRepository.save(currentSite);
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
                 }
-            });
+            }
+            if (stopIndexing) {
+                currentSite.setLastError("Indexing is stopped by user because stopIndexing is true");
+                currentSite.setStatus(Status.FAILED.toString());
+                siteRepository.save(currentSite);
+            } else if (STOPPED_SITES.contains(currentSite)) {
+                currentSite.setLastError("Indexing is stopped by user because STOPPED_SITES.contains(currentSite)");
+                currentSite.setStatus(Status.FAILED.toString());
+                siteRepository.save(currentSite);
+            } else if (SITE_ERROR.getOrDefault(currentSite, false)) {
+                currentSite.setLastError("An error occurred. Indexing is stopped");
+                currentSite.setStatus(Status.FAILED.toString());
+                siteRepository.save(currentSite);
+            } else {
+                currentSite.setStatus(Status.INDEXED.toString());
+                siteRepository.save(currentSite);
+            }
         });
-//        List<Thread> updateIndexingTimeThreads = new CopyOnWriteArrayList<>();
-//        for (Site site : sites) {
-//            Thread thread = new Thread(() -> {
-//                while (!Thread.currentThread().isInterrupted()) {
-//                    if(tasksFutures.get(site.getName()).isDone()) {
-//                        changeSiteStatus(site);
-//                        break;
-//                    }
-//                    site.setStatusTime(LocalDateTime.now());
-//                    siteRepository.save(site);
-//                    try {
-//                        Thread.sleep(2000);
-//                    } catch (InterruptedException e) {
-//                        throw new RuntimeException(e);
-//                    }
-//                }
-//            });
-//            thread.start();
-//            updateIndexingTimeThreads.add(thread);
-//        }
+        updateThread.start();
     }
 
     /*Changes site's status to INDEXED or FAILED*/
     private void changeSiteStatus(Site site) {
-        if (!site.getStatus().equals(Status.FAILED.toString()) && !stopIndexing) {
-            site.setStatus(Status.INDEXED.toString());
+        if (STOPPED_SITES.contains(site)) {
+            site.setStatus(Status.FAILED.toString());
+            site.setLastError("Indexing is stopped by user from changeSiteStatus");
             siteRepository.save(site);
         } else {
-            site.setStatus(Status.FAILED.toString());
-            site.setLastError("Indexing is stopped by user");
+            site.setStatus(Status.INDEXED.toString());
             siteRepository.save(site);
         }
     }
@@ -401,6 +309,10 @@ public class IndexingServiceImpl implements IndexingService {
     }
 
     private ArrayList<ArrayList<Long>> getPageIdListBatches(List<Long> pagesId) {
+        if (Thread.currentThread().isInterrupted()) {
+            System.out.println("inside getPageIdListBatches() Current thread is interrupted");
+            return new ArrayList<>();
+        }
         ArrayList<ArrayList<Long>> batches = new ArrayList<>();
         int batchSize = 50;
         int total = pagesId.size();
@@ -412,13 +324,84 @@ public class IndexingServiceImpl implements IndexingService {
         return batches;
     }
 
-    private void createIndexes(List<Long> batch, Site site) {
+    private void createLemmasAndIndexes(List<Long> batch, Site site) {
+        if (Thread.currentThread().isInterrupted()) {
+            System.out.println("inside createLemmasAndIndexes() Current thread is interrupted");
+            return;
+        }
+        long siteId = site.getId();
         List<Page> savedPages = new ArrayList<>();
         batch.forEach(pageId -> savedPages.add(pageRepository.findById(pageId)));
+        List<Index> indexList = new ArrayList<>();
 
         for (Page page : savedPages) {
+            long pageId = page.getId();
             Map<String, Integer> lemma_Count = lemmaFinderService.collectLemmas(page.getContent());
 
+
+            lemma_Count.forEach((lemmaString, count) -> {
+                Lemma lemma = new Lemma(siteId, lemmaString, 1);
+                long lemmaId = lemmaRepository.saveOrUpdate(lemma);
+                Index index = new Index(pageId, lemmaId, count);
+                indexList.add(index);
+            });
         }
+        String sqlIndexInsertQuery = prepareIndexSqlInsertQuery(prepareIndexValuesForSqlInsertQuery(indexList));
+        indexJdbcRepository.executeSql(sqlIndexInsertQuery);
+    }
+
+    private String prepareIndexValuesForSqlInsertQuery(List<Index> indexList) {
+        StringBuilder result = new StringBuilder();
+
+        for (int i = 0; i < indexList.size(); i++) {
+            Index currentIndex = indexList.get(i);
+            if (i == indexList.size() - 1) {
+                result.append("(").append(currentIndex.getPageId()).append(", ")
+                        .append(currentIndex.getLemmaId()).append(", ")
+                        .append(currentIndex.getRank()).append(");");
+                break;
+            }
+            result.append("(").append(currentIndex.getPageId()).append(", ")
+                    .append(currentIndex.getLemmaId()).append(", ")
+                    .append(currentIndex.getRank()).append("), ");
+        }
+        return result.toString();
+    }
+
+    private String prepareIndexSqlInsertQuery(String values) {
+        return "INSERT INTO index_1 (page_id, lemma_id, rank_1) VALUES" + values;
+    }
+
+    private void awaitThreadFinish() {
+        while (MAIN_THREADS.values().stream().anyMatch(Thread::isAlive)) {
+            System.out.println("Waiting main threads to finish");
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    private void savePagesEvery200pages(PageExtractorService task) {
+        Thread currentThread = Thread.currentThread();
+        Thread thread = new Thread(() -> {
+            while (!currentThread.isInterrupted()) {
+                if (!currentThread.isAlive()) {
+                    break;
+                }
+                System.out.println("Page list size: " + task.pageList.size() + " from thread: " + Thread.currentThread().getName());
+                System.out.println("Link list size: " + task.links.size() + " from thread: " + Thread.currentThread().getName());
+                if (task.pageList.size() >= 200) {
+                    task.savePages();
+                }
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        });
+        thread.start();
     }
 }

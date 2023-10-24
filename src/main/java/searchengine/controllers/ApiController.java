@@ -41,8 +41,8 @@ public class ApiController {
     }
 
     @GetMapping("/stopIndexing")
-    public ResponseEntity<IndexingResponse> stopIndexing() {
-        return ResponseEntity.ok(indexingService.stopIndexing());
+    public ResponseEntity<IndexingResponse> stopIndexing(@RequestParam(name = "siteId", required = false) Long siteId) {
+        return ResponseEntity.ok(indexingService.stopIndexing(siteId));
     }
 
     @PostMapping("/indexPage")

@@ -6,6 +6,6 @@ import java.util.List;
 
 public interface IndexingService {
      IndexingResponse startIndexing();
-     IndexingResponse stopIndexing();
+     IndexingResponse stopIndexing(Long siteId);
      IndexingResponse indexPage(String url);
 }

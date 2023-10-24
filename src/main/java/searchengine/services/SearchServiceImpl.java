@@ -6,6 +6,7 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.stereotype.Service;
 import searchengine.dto.search.SearchData;
+import searchengine.dto.search.SearchErrorResult;
 import searchengine.dto.search.SearchResult;
 import searchengine.dto.search.SearchSuccessResult;
 import searchengine.model.Index;
@@ -50,13 +51,18 @@ public class SearchServiceImpl implements SearchService {
                 return getSearchResult(sortedLemmaSetAfterExcluding, offset, safeLimit);
             }
             if (!pageRelevance.isEmpty() && (offset + limit) > pageRelevance.size()) {
-                return checkPageRelevance(offset, limit, sortedLemmaSetAfterExcluding, pageRelevance);
+                return checkPageRelevance(offset, limit, sortedLemmaSetAfterExcluding);
             }
         }
 
         lastQuery = query;
         System.out.println("sortedLemmaSetAfterExcluding: " + sortedLemmaSetAfterExcluding.size());
-        long rarestLemmaId = sortedLemmaSetAfterExcluding.iterator().next().getId();
+        long rarestLemmaId;
+        try {
+            rarestLemmaId = sortedLemmaSetAfterExcluding.iterator().next().getId();
+        } catch (NoSuchElementException e) {
+            return new SearchErrorResult(false,"Lemmas from this query were not found on the website, or the site has not yet been indexed");
+        }
         List<Page> pages;
         if (savedSite != null)
             pages = indexRepository.findPagesByLemmaIdAndSiteId(rarestLemmaId, savedSite.getId());
@@ -111,14 +117,14 @@ public class SearchServiceImpl implements SearchService {
 //            }
 //        }
 //        System.out.println("pagesAfterExcluding : " + pagesAfterExcluding.size());
-        SearchResult searchResult = checkPageRelevance(offset, limit, sortedLemmaSetAfterExcluding, pageRelevance);
+        SearchResult searchResult = checkPageRelevance(offset, limit, sortedLemmaSetAfterExcluding);
         System.out.println("pageRelevance.size(): " + pageRelevance.size());
         pagesListIds.forEach(p -> System.out.println("Page id: " + p));
         return searchResult;
     }
 
     @NotNull
-    private SearchResult checkPageRelevance(int offset, int limit, Set<Lemma> sortedLemmaSetAfterExcluding, Map<Page, Double> pageRelevance2) {
+    private SearchResult checkPageRelevance(int offset, int limit, Set<Lemma> sortedLemmaSetAfterExcluding) {
         int safeLimit;
         while ((offset + limit) > pageRelevance.size() && preparePageRelevanceThread.isAlive()) {
             System.out.println("pages size: " + pageRelevance.size());
@@ -129,10 +135,11 @@ public class SearchServiceImpl implements SearchService {
             }
             System.out.println("Waiting");
         }
-        if ((offset + limit) > pageRelevance2.size() && !preparePageRelevanceThread.isAlive()) {
-            safeLimit = pageRelevance2.size();
+        System.out.println("if ((offset + limit) > pageRelevance.size() && !preparePageRelevanceThread.isAlive())" + ((offset + limit) > pageRelevance.size() && !preparePageRelevanceThread.isAlive()));
+        if ((offset + limit) > pageRelevance.size() && !preparePageRelevanceThread.isAlive()) {
+            safeLimit = pageRelevance.size();
             return getSearchResult(sortedLemmaSetAfterExcluding, offset, safeLimit);
-        } else if ((offset + limit) < pageRelevance2.size() && !preparePageRelevanceThread.isAlive()) {
+        } else if ((offset + limit) < pageRelevance.size() && !preparePageRelevanceThread.isAlive()) {
             safeLimit = offset + limit;
             return getSearchResult(sortedLemmaSetAfterExcluding, offset, safeLimit);
         } else {

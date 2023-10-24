@@ -52,4 +52,20 @@ public class Site {
                 ", pages=" + pages +
                 '}';
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+
+        if (o == null || getClass() != o.getClass()) return false;
+
+        Site site = (Site) o;
+
+        return new org.apache.commons.lang3.builder.EqualsBuilder().append(id, site.id).append(url, site.url).append(name, site.name).isEquals();
+    }
+
+    @Override
+    public int hashCode() {
+        return new org.apache.commons.lang3.builder.HashCodeBuilder(17, 37).append(id).append(url).append(name).toHashCode();
+    }
 }

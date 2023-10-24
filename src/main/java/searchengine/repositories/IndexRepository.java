@@ -1,5 +1,6 @@
 package searchengine.repositories;
 
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.CrudRepository;
 import org.springframework.data.repository.query.Param;
@@ -16,8 +17,14 @@ public interface IndexRepository extends CrudRepository<Index,Integer> {
 
     ArrayList<Index> findAllByPageId(long pageId);
 
+    @Modifying
     @Transactional
     void deleteByPageId(long pageId);
+
+    @Modifying
+    @Transactional
+    @Query(value = "delete from Index i")
+    void deleteAllIndexes();
 
     ArrayList<Index> findAllByLemmaId(long lemmaId);
 
@@ -38,6 +45,4 @@ public interface IndexRepository extends CrudRepository<Index,Integer> {
             "INNER JOIN Index i ON i.pageId = p.id " +
             "WHERE i.lemmaId = :lemmaId AND p.site.id = :siteId")
     List<Index> findIndexesByLemmaIdAndSiteId(@Param("lemmaId") long lemmaId, @Param("siteId") long siteId);
-
-
 }
