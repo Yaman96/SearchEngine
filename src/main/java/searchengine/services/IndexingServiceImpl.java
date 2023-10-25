@@ -15,7 +15,10 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.*;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.concurrent.ForkJoinPool;
 
 @Service
 public class IndexingServiceImpl implements IndexingService {
@@ -30,7 +33,7 @@ public class IndexingServiceImpl implements IndexingService {
     private final LemmaFinderService lemmaFinderService;
     private final ConcurrentHashMap<Site, Thread> MAIN_THREADS = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Site, ForkJoinPool> FORK_JOIN_POOLS = new ConcurrentHashMap<>();
-    private final HashSet<Site> STOPPED_SITES = new HashSet<>();
+    private final Set<Site> STOPPED_SITES = new CopyOnWriteArraySet<>();
     private final static Map<Site, Boolean> SITE_ERROR = new ConcurrentHashMap<>();
     private static volatile boolean indexingIsRunning = false;
     private static volatile boolean stopIndexing = false;
@@ -54,9 +57,9 @@ public class IndexingServiceImpl implements IndexingService {
         }
         indexingIsRunning = true;
         stopIndexing = false;
-        clearAllMapsAndListsAfterPerviousIndexing();
+        clearAllMapsAndListsAfterPreviousIndexing();
         createdSites = createNewSites(sites);
-        deleteSiteInfo(createdSites.get(0), true);
+        deleteSiteInfo(null, true);
         for (Site site : createdSites) {
             Thread thread = new Thread(() -> {
                 try {
@@ -65,6 +68,8 @@ public class IndexingServiceImpl implements IndexingService {
                     savePagesEvery200pages(task);
                     FORK_JOIN_POOLS.put(site, forkJoinPool);
                     forkJoinPool.invoke(task);
+                    System.err.println("forkJoinPool.isShutdown(): " + forkJoinPool.isShutdown());
+                    System.err.println("Thread.currentThread().isInterrupted(): " + Thread.currentThread().isInterrupted());
                     if (!forkJoinPool.isShutdown() || !Thread.currentThread().isInterrupted()) {
                         task.savePages();
                         ArrayList<Long> pagesId = pageRepository.getPagesIdBySiteId(site.getId());
@@ -75,10 +80,18 @@ public class IndexingServiceImpl implements IndexingService {
                     } else {
                         System.out.println("inside search() current thread is interrupted");
                         if (!STOPPED_SITES.contains(site)) {
+                            STOPPED_SITES.forEach(site1 -> {
+                                System.out.println(site1.getId() + " " + site.getId());
+                            });
+                            System.out.println("!STOPPED_SITES.contains(site) -> SITE_ERROR.put(site, true)");
                             SITE_ERROR.put(site, true);
                         }
                     }
+                } catch (CancellationException e) {
+                    e.printStackTrace();
                 } catch (Exception e) {
+                    e.printStackTrace();
+                    System.out.println("catch (Exception e)");
                     SITE_ERROR.put(site, true);
                 }
             });
@@ -89,7 +102,8 @@ public class IndexingServiceImpl implements IndexingService {
             updateIndexingTime(site, thread);
         });
         awaitThreadFinish();
-        createdSites.forEach(this::changeSiteStatus);
+//        createdSites.forEach(this::changeSiteStatus);
+        indexingIsRunning = false;
         if (SITE_ERROR.values().stream().allMatch(error -> error.equals(true))) {
             return new IndexingErrorResponse(false, "No site has been indexed. An error occurred during the indexing of all sites. Or indexing was stopped by user");
         }
@@ -99,7 +113,7 @@ public class IndexingServiceImpl implements IndexingService {
         return new IndexingSuccessResponse(true);
     }
 
-    private void clearAllMapsAndListsAfterPerviousIndexing() {
+    private void clearAllMapsAndListsAfterPreviousIndexing() {
         MAIN_THREADS.clear();
         FORK_JOIN_POOLS.clear();
         STOPPED_SITES.clear();
@@ -116,6 +130,7 @@ public class IndexingServiceImpl implements IndexingService {
                 Site site;
                 if (siteOptional.isPresent()) {
                     site = siteOptional.get();
+                    STOPPED_SITES.add(site);
                 } else {
                     return new IndexingErrorResponse(false, "There is no such site. Incorrect siteId");
                 }
@@ -128,9 +143,7 @@ public class IndexingServiceImpl implements IndexingService {
                 }
                 MAIN_THREADS.get(site).interrupt();
                 FORK_JOIN_POOLS.get(site).shutdownNow();
-                STOPPED_SITES.add(site);
                 deleteSiteInfo(site, false);
-                return new IndexingSuccessResponse(true);
             } else {
                 stopIndexing = true;
                 indexingIsRunning = false;
@@ -138,8 +151,9 @@ public class IndexingServiceImpl implements IndexingService {
                 MAIN_THREADS.forEach((site, thread) -> thread.interrupt());
                 FORK_JOIN_POOLS.forEach((site, fjp) -> fjp.shutdownNow());
                 deleteSiteInfo(null, true);
-                return new IndexingSuccessResponse(true);
+                clearAllMapsAndListsAfterPreviousIndexing();
             }
+            return new IndexingSuccessResponse(true);
         } catch (Exception e) {
             stopIndexing = false;
             indexingIsRunning = true;
@@ -289,6 +303,10 @@ public class IndexingServiceImpl implements IndexingService {
         if (STOPPED_SITES.contains(site)) {
             site.setStatus(Status.FAILED.toString());
             site.setLastError("Indexing is stopped by user from changeSiteStatus");
+            siteRepository.save(site);
+        } else if (SITE_ERROR.getOrDefault(site, false)) {
+            site.setStatus(Status.FAILED.toString());
+            site.setLastError("An error occurred. Indexing is stopped");
             siteRepository.save(site);
         } else {
             site.setStatus(Status.INDEXED.toString());
