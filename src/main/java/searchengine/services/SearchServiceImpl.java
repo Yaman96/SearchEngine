@@ -61,7 +61,7 @@ public class SearchServiceImpl implements SearchService {
         try {
             rarestLemmaId = sortedLemmaSetAfterExcluding.iterator().next().getId();
         } catch (NoSuchElementException e) {
-            return new SearchErrorResult(false,"Lemmas from this query were not found on the website, or the site has not yet been indexed");
+            return new SearchErrorResult(false, "Lemmas from this query were not found on the website, or the site has not yet been indexed");
         }
         List<Page> pages;
         if (savedSite != null)
@@ -101,6 +101,9 @@ public class SearchServiceImpl implements SearchService {
             }
         });
         preparePageRelevanceThread.start();
+        while (preparePageRelevanceThread.isAlive()) {
+
+        }
 //        for (Page page: pages) {
 //            double absoluteRelevance = 0;
 //            System.out.println("lemmaSetWithoutFirstElement inside forEach: " + lemmaSetWithoutFirstElement.size());
@@ -119,7 +122,7 @@ public class SearchServiceImpl implements SearchService {
 //        System.out.println("pagesAfterExcluding : " + pagesAfterExcluding.size());
         SearchResult searchResult = checkPageRelevance(offset, limit, sortedLemmaSetAfterExcluding);
         System.out.println("pageRelevance.size(): " + pageRelevance.size());
-        pagesListIds.forEach(p -> System.out.println("Page id: " + p));
+//        pagesListIds.forEach(p -> System.out.println("Page id: " + p));
         return searchResult;
     }
 
@@ -180,27 +183,31 @@ public class SearchServiceImpl implements SearchService {
             if (lemmaOptional.isPresent()) {
                 System.out.println("if (lemmaOptional.isPresent())");
                 savedLemma = lemmaOptional.get();
-                if (savedLemma.getFrequency() < 500) lemmaSetAfterExcluding.add(savedLemma);
+                if (savedLemma.getFrequency() < 200) {
+                    System.out.println("lemmaSetAfterExcluding: " + lemmaSetAfterExcluding);
+                    System.out.println("lemma that will be added: " + savedLemma);
+                    lemmaSetAfterExcluding.add(savedLemma);
+                    System.out.println("savedLemma added");
+                    System.out.println("lemmaSetAfterExcluding after: " + lemmaSetAfterExcluding);
+                }
                 System.out.println("savedLemma.getFrequency(): " + savedLemma.getLemma() + " " + savedLemma.getFrequency());
             }
+            System.out.println("Lezddfpsmdd;lg " + lemmaSetAfterExcluding.size());
         });
         System.out.println("lemmaSetAfterExcluding: " + lemmaSetAfterExcluding.size());
         return lemmaSetAfterExcluding;
     }
 
     public static void main(String[] args) {
-       Map<Page, Double> pageRelevance = new TreeMap<>();
-       Page page1 = new Page("asd",200,"content", new Site());
-       Page page2 = new Page("asd",200,"content", new Site());
-       page1.setRelevance(30);
-       page2.setRelevance(100);
-       pageRelevance.put(page1,page1.getRelevance());
-       pageRelevance.put(page2,page2.getRelevance());
-       System.out.println(pageRelevance);
+        Set<Lemma> lemmaSetAfterExcluding = new TreeSet<>();
+        Lemma lemma1 = new Lemma(123,"устройство",85);
+        lemma1.setId(29215);
+        Lemma lemma2 = new Lemma(123,"зарядный",85);
+        lemma2.setId(29261);
 
-       Set<Page> pages = pageRelevance.keySet();
-       List<Double> relevance = new ArrayList<>(pageRelevance.values());
-        System.out.println(pages);
-        System.out.println(relevance);
+        lemmaSetAfterExcluding.add(lemma1);
+        lemmaSetAfterExcluding.add(lemma2);
+
+        System.out.println(lemmaSetAfterExcluding);
     }
 }

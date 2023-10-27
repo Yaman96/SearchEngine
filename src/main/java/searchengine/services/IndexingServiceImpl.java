@@ -35,7 +35,8 @@ public class IndexingServiceImpl implements IndexingService {
     private final ConcurrentHashMap<Site, Thread> MAIN_THREADS = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Site, ForkJoinPool> FORK_JOIN_POOLS = new ConcurrentHashMap<>();
     private final Set<Site> STOPPED_SITES = new CopyOnWriteArraySet<>();
-    private final static Map<Site, Boolean> SITE_ERROR = new ConcurrentHashMap<>();
+    private final Map<Site, Boolean> SITE_ERROR = new ConcurrentHashMap<>();
+    private final Set<Lemma> lemmasToSave = new CopyOnWriteArraySet<>();
     private static volatile boolean indexingIsRunning = false;
     private static volatile boolean stopIndexing = false;
 
@@ -127,6 +128,7 @@ public class IndexingServiceImpl implements IndexingService {
         FORK_JOIN_POOLS.clear();
         STOPPED_SITES.clear();
         SITE_ERROR.clear();
+        lemmasToSave.clear();
         PageExtractorService.links.clear();
         PageExtractorService.pageList.clear();
     }
@@ -157,9 +159,8 @@ public class IndexingServiceImpl implements IndexingService {
                 if (createdSites.size() == STOPPED_SITES.size()) {
                     deleteSiteInfo(null, true);
                     clearAllMapsAndListsAfterPreviousIndexing();
-                }
-                else {
-                    deleteSiteInfo(site,false);
+                } else {
+                    deleteSiteInfo(site, false);
                 }
             } else {
                 stopIndexing = true;
@@ -368,44 +369,52 @@ public class IndexingServiceImpl implements IndexingService {
         List<Page> savedPages = new ArrayList<>();
         batch.forEach(pageId -> savedPages.add(pageRepository.findById(pageId)));
         List<Index> indexList = new ArrayList<>();
-        Set<Lemma> lemmasToSave = new HashSet<>();
+//        Set<Lemma> lemmasToSave = new HashSet<>();
 
         for (Page page : savedPages) {
             long pageId = page.getId();
             Map<String, Integer> lemma_Count = lemmaFinderService.collectLemmas(page.getContent());
 
-//            lemma_Count.forEach((lemmaString, count) -> {
-//                Lemma lemma = new Lemma(siteId, lemmaString, 1);
-//                if (lemmasToSave.contains(lemma)) {
-//                    lemmasToSave.stream().filter(lemma1 -> lemma1.equals(lemma)).forEach(Lemma::incrementFrequency);
-//                } else {
-//                    Lemma savedLemma = lemmaRepository.save(lemma);
-//                    lemmasToSave.add(savedLemma);
-//                }
-//                Index index = new Index(pageId, lemmaId, count);
-//                indexList.add(index);
-//            });
-            for (Map.Entry<String, Integer> entry : lemma_Count.entrySet()) {
-                String lemmaString = entry.getKey();
-                Integer count = entry.getValue();
+            lemma_Count.forEach((lemmaString, count) -> {
                 Lemma lemma = new Lemma(siteId, lemmaString, 1);
-
-                boolean found = false;
-                for (Lemma existingLemma : lemmasToSave) {
-                    if (existingLemma.equals(lemma)) {
-                        existingLemma.incrementFrequency();
-                        found = true;
-                        break;
-                    }
-                }
-                if (!found) {
-                    lemma = lemmaRepository.save(lemma);
-                    lemmasToSave.add(lemma);
+                if (lemmasToSave.contains(lemma)) {
+                    lemmasToSave.stream().filter(lemma1 -> lemma1.equals(lemma)).forEach(lemma1 -> {
+                        lemma1.incrementFrequency();
+                        lemma.setId(lemma1.getId());
+                    });
+                } else {
+                    Lemma savedLemma = lemmaRepository.save(lemma);
+                    lemma.setId(savedLemma.getId());
+                    lemmasToSave.add(savedLemma);
                 }
                 Index index = new Index(pageId, lemma.getId(), count);
+                System.out.println("Index lemma_id = " + index.getLemmaId() + " count: " + index.getRank());
                 indexList.add(index);
-            }
+            });
+//            for (Map.Entry<String, Integer> entry : lemma_Count.entrySet()) {
+//                String lemmaString = entry.getKey();
+//                Integer count = entry.getValue();
+//                Lemma lemma = new Lemma(siteId, lemmaString, 1);
+//
+//                boolean found = false;
+//                for (Lemma existingLemma : lemmasToSave) {
+//                    if (existingLemma.equals(lemma)) {
+//                        existingLemma.incrementFrequency();
+//                        found = true;
+//                        break;
+//                    }
+//                }
+//                if (!found) {
+//                    lemma = lemmaRepository.save(lemma);
+//                    System.out.println("new lemma: " + lemma.getLemma() + " : " + lemma.getFrequency());
+//                    lemmasToSave.add(lemma);
+//                }
+//                Index index = new Index(pageId, lemma.getId(), count);
+//                indexList.add(index);
+//            }
         }
+        System.out.println("lemmas count: " + lemmasToSave.size());
+        lemmasToSave.forEach(lemma -> System.err.println(lemma.getLemma() + " : " + lemma.getFrequency() + " (id : " + lemma.getId() + ") from thread: " + Thread.currentThread().getName()));
         lemmaRepository.saveAll(lemmasToSave);
         String sqlIndexInsertQuery = prepareIndexSqlInsertQuery(prepareIndexValuesForSqlInsertQuery(indexList));
         indexJdbcRepository.executeSql(sqlIndexInsertQuery);
@@ -468,11 +477,11 @@ public class IndexingServiceImpl implements IndexingService {
 
     public static void main(String[] args) {
         Set<Lemma> lemmas = new HashSet<>();
-        Lemma lemma = new Lemma(144L,"bla",1);
+        Lemma lemma = new Lemma(144L, "bla", 1);
         lemma.setId(100);
         lemmas.add(lemma);
-        Lemma lemma1 = new Lemma(144L,"bla",1);
-        if(lemmas.contains(lemma1)) {
+        Lemma lemma1 = new Lemma(144L, "bla", 1);
+        if (lemmas.contains(lemma1)) {
             lemmas.stream().filter(lemma2 -> lemma2.equals(lemma)).forEach(Lemma::incrementFrequency);
         }
         System.out.println(lemmas.iterator().next().getFrequency());
