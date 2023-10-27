@@ -3,6 +3,8 @@ package searchengine.model;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.jetbrains.annotations.NotNull;
 
 import javax.persistence.*;
@@ -38,6 +40,22 @@ public class Lemma implements Comparable<Lemma>{
 
     @Override
     public int compareTo(@NotNull Lemma o) {
-        return -Integer.compare(frequency,o.frequency);
+        return Integer.compare(frequency,o.frequency);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+
+        if (o == null || getClass() != o.getClass()) return false;
+
+        Lemma lemma1 = (Lemma) o;
+
+        return new EqualsBuilder().append(siteId, lemma1.siteId).append(lemma, lemma1.lemma).isEquals();
+    }
+
+    @Override
+    public int hashCode() {
+        return new HashCodeBuilder(17, 37).append(siteId).append(lemma).toHashCode();
     }
 }

@@ -2,7 +2,6 @@ package searchengine.model;
 
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import lombok.ToString;
 import org.jetbrains.annotations.NotNull;
 
 import javax.persistence.*;
@@ -43,13 +42,14 @@ public class Page implements Comparable<Page>{
     @Override
     public String toString() {
         return "Page{" +
-                "id=" + id +
-                ", site=" + site.getName() +
+                "site=" + site +
                 ", path='" + path + '\'' +
                 ", code=" + code +
                 ", content='" + content + '\'' +
+                ", relevance=" + relevance +
                 '}';
     }
+
     @Override
     public int compareTo(@NotNull Page o) {
         return -Double.compare(relevance, o.relevance);

@@ -129,19 +129,18 @@ public class SearchServiceImpl implements SearchService {
         while ((offset + limit) > pageRelevance.size() && preparePageRelevanceThread.isAlive()) {
             System.out.println("pages size: " + pageRelevance.size());
             try {
-                Thread.sleep(100);
+                Thread.sleep(1000);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
             System.out.println("Waiting");
         }
         System.out.println("if ((offset + limit) > pageRelevance.size() && !preparePageRelevanceThread.isAlive())" + ((offset + limit) > pageRelevance.size() && !preparePageRelevanceThread.isAlive()));
-        if ((offset + limit) > pageRelevance.size() && !preparePageRelevanceThread.isAlive()) {
+        if (limit > (pageRelevance.size() - offset) && !preparePageRelevanceThread.isAlive()) {
             safeLimit = pageRelevance.size();
             return getSearchResult(sortedLemmaSetAfterExcluding, offset, safeLimit);
-        } else if ((offset + limit) < pageRelevance.size() && !preparePageRelevanceThread.isAlive()) {
-            safeLimit = offset + limit;
-            return getSearchResult(sortedLemmaSetAfterExcluding, offset, safeLimit);
+        } else if (limit < (pageRelevance.size() - offset) && !preparePageRelevanceThread.isAlive()) {
+            return getSearchResult(sortedLemmaSetAfterExcluding, offset, limit);
         } else {
             return new SearchSuccessResult(true, 0, new ArrayList<>());
         }
@@ -187,5 +186,21 @@ public class SearchServiceImpl implements SearchService {
         });
         System.out.println("lemmaSetAfterExcluding: " + lemmaSetAfterExcluding.size());
         return lemmaSetAfterExcluding;
+    }
+
+    public static void main(String[] args) {
+       Map<Page, Double> pageRelevance = new TreeMap<>();
+       Page page1 = new Page("asd",200,"content", new Site());
+       Page page2 = new Page("asd",200,"content", new Site());
+       page1.setRelevance(30);
+       page2.setRelevance(100);
+       pageRelevance.put(page1,page1.getRelevance());
+       pageRelevance.put(page2,page2.getRelevance());
+       System.out.println(pageRelevance);
+
+       Set<Page> pages = pageRelevance.keySet();
+       List<Double> relevance = new ArrayList<>(pageRelevance.values());
+        System.out.println(pages);
+        System.out.println(relevance);
     }
 }
