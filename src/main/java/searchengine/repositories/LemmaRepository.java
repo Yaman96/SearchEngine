@@ -16,6 +16,10 @@ public interface LemmaRepository extends CrudRepository<Lemma,Integer> {
 
     @Transactional
     Optional<Lemma> findByLemmaEquals(String lemma);
+
+    @Transactional
+    @Query(value = "SELECT l FROM Lemma l WHERE l.lemma = :lemma")
+    Optional<List<Lemma>> findAllByLemma(String lemma);
     @Transactional
     Optional<Lemma> findByLemmaAndSiteId(String lemma, long siteId);
 

@@ -7,15 +7,22 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import searchengine.model.Index;
+import searchengine.model.Lemma;
 import searchengine.model.Page;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 @Repository
-public interface IndexRepository extends CrudRepository<Index,Integer> {
+public interface IndexRepository extends CrudRepository<Index, Integer> {
 
     ArrayList<Index> findAllByPageId(long pageId);
+
+    @Query(value = "SELECT l FROM Lemma l " +
+            "INNER JOIN Index i ON i.lemmaId = l.id " +
+            "WHERE i.pageId = :pageId")
+    Set<Lemma> findAllLemmasByPageId(long pageId);
 
     @Modifying
     @Transactional

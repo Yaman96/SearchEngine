@@ -49,7 +49,7 @@ public class Site {
                 ", lastError='" + lastError + '\'' +
                 ", url='" + url + '\'' +
                 ", name='" + name + '\'' +
-                ", pages=" + pages +
+                ", pages=" + pages.size() +
                 '}';
     }
 

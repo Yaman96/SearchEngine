@@ -2,6 +2,8 @@ package searchengine.model;
 
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.apache.commons.lang3.builder.EqualsBuilder;
+import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.jetbrains.annotations.NotNull;
 
 import javax.persistence.*;
@@ -42,16 +44,35 @@ public class Page implements Comparable<Page>{
     @Override
     public String toString() {
         return "Page{" +
-                "site=" + site +
+                "site=" + site.getName() +
                 ", path='" + path + '\'' +
                 ", code=" + code +
-                ", content='" + content + '\'' +
+                ", content length='" + content.length() + '\'' +
                 ", relevance=" + relevance +
                 '}';
     }
 
     @Override
     public int compareTo(@NotNull Page o) {
+        if (relevance == o.relevance) {
+            return path.compareTo(o.path);
+        }
         return -Double.compare(relevance, o.relevance);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+
+        if (o == null || getClass() != o.getClass()) return false;
+
+        Page page = (Page) o;
+
+        return new EqualsBuilder().append(code, page.code).append(path, page.path).append(content, page.content).isEquals();
+    }
+
+    @Override
+    public int hashCode() {
+        return new HashCodeBuilder(17, 37).append(path).append(code).append(content).toHashCode();
     }
 }

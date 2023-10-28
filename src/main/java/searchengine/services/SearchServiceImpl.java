@@ -1,15 +1,9 @@
 package searchengine.services;
 
 import lombok.RequiredArgsConstructor;
-import org.jetbrains.annotations.NotNull;
-import org.jsoup.Jsoup;
-import org.jsoup.nodes.Document;
 import org.springframework.stereotype.Service;
-import searchengine.dto.search.SearchData;
-import searchengine.dto.search.SearchErrorResult;
 import searchengine.dto.search.SearchResult;
 import searchengine.dto.search.SearchSuccessResult;
-import searchengine.model.Index;
 import searchengine.model.Lemma;
 import searchengine.model.Page;
 import searchengine.model.Site;
@@ -19,9 +13,7 @@ import searchengine.repositories.PageRepository;
 import searchengine.repositories.SiteRepository;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentSkipListMap;
-import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -33,181 +25,95 @@ public class SearchServiceImpl implements SearchService {
     private final PageRepository pageRepository;
     private final IndexRepository indexRepository;
     private final SnippetFinderImpl snippetFinder;
-    private final Map<Page, Double> pageRelevance = new ConcurrentHashMap<>();
-    private final CopyOnWriteArrayList<Double> relevanceList = new CopyOnWriteArrayList<>();
-    private final Set<Long> pagesListIds = new HashSet<>();
-    private Thread preparePageRelevanceThread;
-    private String lastQuery;
 
     @Override
-//    @SuppressWarnings("all")
     public SearchResult search(String query, String site, int offset, int limit) {
-        Site savedSite = siteRepository.findByUrlStartingWith(site);
-        Map<String, Integer> lemmasFromQuery = lemmaFinderService.collectLemmas(query);
-        Set<Lemma> sortedLemmaSetAfterExcluding = excludeHighFrequencyLemmas(lemmasFromQuery, savedSite);
-        int safeLimit = offset + limit;
-        if (query.equalsIgnoreCase(lastQuery)) {
-            if (!pageRelevance.isEmpty() && safeLimit < pageRelevance.size()) {
-                return getSearchResult(sortedLemmaSetAfterExcluding, offset, safeLimit);
-            }
-            if (!pageRelevance.isEmpty() && (offset + limit) > pageRelevance.size()) {
-                return checkPageRelevance(offset, limit, sortedLemmaSetAfterExcluding);
-            }
+        Set<String> stringLemmasFromQuery = lemmaFinderService.getLemmaSet(query);
+        Site selectedSite = siteRepository.findByUrlStartingWith(site);
+        Set<Lemma> lemmaSetAfterExcluding = excludeHighFrequencyLemmas(stringLemmasFromQuery, selectedSite);
+        Lemma rarestLemma = lemmaSetAfterExcluding.iterator().next();
+        System.err.println("[DEBUG] rarestLemma: " + rarestLemma);
+        Set<Page> pagesWithTheRarestLemma = findPagesWithTheRarestLemma(rarestLemma,selectedSite);
+        System.err.println("[DEBUG] pagesWithTheRarestLemma: " + pagesWithTheRarestLemma);
+        Set<Lemma> lemmaSetWithoutTheRarestLemma = lemmaSetAfterExcluding.stream().skip(1).collect(Collectors.toSet());
+        System.err.println("[DEBUG] lemmaSetWithoutTheRarestLemma: " + lemmaSetWithoutTheRarestLemma);
+        Set<Page> filteredPages = filterPagesWithTheRarestLemma(pagesWithTheRarestLemma,lemmaSetWithoutTheRarestLemma);
+        System.err.println("[DEBUG] filteredPages: " + filteredPages);
+        if(filteredPages.isEmpty()) {
+            return new SearchSuccessResult(true,0, new ArrayList<>());
         }
+        Set<Page> pagesWithCalculatedRelevance = calculateRelevance(filteredPages,lemmaSetAfterExcluding);
+        System.err.println("[DEBUG] pagesWithCalculatedRelevance: " + pagesWithCalculatedRelevance);
+        SearchResult searchResult;
 
-        lastQuery = query;
-        System.out.println("sortedLemmaSetAfterExcluding: " + sortedLemmaSetAfterExcluding.size());
-        long rarestLemmaId;
-        try {
-            rarestLemmaId = sortedLemmaSetAfterExcluding.iterator().next().getId();
-        } catch (NoSuchElementException e) {
-            return new SearchErrorResult(false, "Lemmas from this query were not found on the website, or the site has not yet been indexed");
-        }
-        List<Page> pages;
-        if (savedSite != null)
-            pages = indexRepository.findPagesByLemmaIdAndSiteId(rarestLemmaId, savedSite.getId());
-        else
-            pages = indexRepository.findPagesByLemmaId(rarestLemmaId);
-
-        System.out.println("pages size: " + pages.size());
-//        Map<Page, Double> pageRelevance = new TreeMap<>();
-        TreeSet<Lemma> lemmaSetWithoutFirstElement = new TreeSet<>();
-        sortedLemmaSetAfterExcluding.stream().skip(1).forEach(lemmaSetWithoutFirstElement::add);
-        System.out.println("lemmaSetWithoutFirstElement: " + lemmaSetWithoutFirstElement);
-
-        preparePageRelevanceThread = new Thread(() -> {
-            int count = 1;
-            for (Page page : pages) {
-                double absoluteRelevance = 0;
-                System.out.println("lemmaSetWithoutFirstElement inside forEach: " + lemmaSetWithoutFirstElement.size());
-                for (Lemma currentLemma : lemmaSetWithoutFirstElement) {
-                    Index index = indexRepository.findByPageIdAndLemmaId(page.getId(), currentLemma.getId());
-                    System.out.println("Is index null? " + (index == null));
-                    if (index != null) {
-                        absoluteRelevance += index.getRank();
-                    }
-                }
-                if (absoluteRelevance > 0) {
-                    System.out.println("if (absoluteRelevance > 0) " + absoluteRelevance);
-                    System.out.println("count is: " + count++);
-                    synchronized (pageRelevance) {
-                        page.setRelevance(absoluteRelevance);
-                        System.out.println(page.getId() + " relevance: " + page.getRelevance());
-                        pageRelevance.put(page, absoluteRelevance);
-                        System.err.println(pageRelevance.size());
-                        pagesListIds.add(page.getId());
-                    }
-                }
-            }
-        });
-        preparePageRelevanceThread.start();
-        while (preparePageRelevanceThread.isAlive()) {
-
-        }
-//        for (Page page: pages) {
-//            double absoluteRelevance = 0;
-//            System.out.println("lemmaSetWithoutFirstElement inside forEach: " + lemmaSetWithoutFirstElement.size());
-//            for (Lemma currentLemma : lemmaSetWithoutFirstElement) {
-//                Index index = indexRepository.findByPageIdAndLemmaId(page.getId(), currentLemma.getId());
-//                System.out.println("Is index null? " + (index == null));
-//                if (index != null) {
-//                    absoluteRelevance += index.getRank();
-//                }
-//            }
-//            if (absoluteRelevance > 0) {
-//                System.out.println("if (absoluteRelevance > 0) " + absoluteRelevance);
-//                pageRelevance.put(absoluteRelevance, page);
-//            }
-//        }
-//        System.out.println("pagesAfterExcluding : " + pagesAfterExcluding.size());
-        SearchResult searchResult = checkPageRelevance(offset, limit, sortedLemmaSetAfterExcluding);
-        System.out.println("pageRelevance.size(): " + pageRelevance.size());
-//        pagesListIds.forEach(p -> System.out.println("Page id: " + p));
-        return searchResult;
+        return null;
     }
 
-    @NotNull
-    private SearchResult checkPageRelevance(int offset, int limit, Set<Lemma> sortedLemmaSetAfterExcluding) {
-        int safeLimit;
-        while ((offset + limit) > pageRelevance.size() && preparePageRelevanceThread.isAlive()) {
-            System.out.println("pages size: " + pageRelevance.size());
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-            System.out.println("Waiting");
-        }
-        System.out.println("if ((offset + limit) > pageRelevance.size() && !preparePageRelevanceThread.isAlive())" + ((offset + limit) > pageRelevance.size() && !preparePageRelevanceThread.isAlive()));
-        if (limit > (pageRelevance.size() - offset) && !preparePageRelevanceThread.isAlive()) {
-            safeLimit = pageRelevance.size();
-            return getSearchResult(sortedLemmaSetAfterExcluding, offset, safeLimit);
-        } else if (limit < (pageRelevance.size() - offset) && !preparePageRelevanceThread.isAlive()) {
-            return getSearchResult(sortedLemmaSetAfterExcluding, offset, limit);
-        } else {
-            return new SearchSuccessResult(true, 0, new ArrayList<>());
-        }
-    }
-
-    @NotNull
-    private SearchResult getSearchResult(Set<Lemma> sortedLemmaSetAfterExcluding, int offset, int safeLimit) {
-        List<SearchData> result = new ArrayList<>();
-        ArrayList<Double> sortedRelevanceList = new ArrayList<>(pageRelevance.values());
-        ArrayList<Page> sortedPageList = new ArrayList<>(pageRelevance.keySet());
-        for (int i = offset; i < safeLimit; i++) {
-            Site currentSite = sortedPageList.get(i).getSite();
-            Page currentPage = sortedPageList.get(i);
-            double currentRelevance = sortedRelevanceList.get(i);
-            Document document = Jsoup.parse(currentPage.getContent());
-            String title = document.title();
-            String snippet = snippetFinder.findSnippet(sortedLemmaSetAfterExcluding, currentPage).get(0);
-            result.add(new SearchData(currentSite.getUrl(), currentSite.getName(), currentPage.getPath().replace(currentSite.getUrl(), ""), title, snippet, currentRelevance));
-
-        }
-        return new SearchSuccessResult(true, pageRelevance.size(), result);
-    }
-
-    private Set<Lemma> excludeHighFrequencyLemmas(Map<String, Integer> lemmaMap, Site site) {
-        System.out.println("is Site is null: " + (site == null));
-        Set<Lemma> lemmaSetAfterExcluding = new TreeSet<>();
-        lemmaMap.forEach((lemmaFromQuery, count) -> {
-            Optional<Lemma> lemmaOptional;
+    private TreeSet<Lemma> excludeHighFrequencyLemmas(Set<String> stringLemmasFromQuery, Site site) {
+        System.err.println("[DEBUG] Site is not selected");
+        List<Lemma> savedLemmas = new ArrayList<>();
+        for (String stringLemma : stringLemmasFromQuery) {
             if (site == null) {
-                System.out.println("if (savedSite == null)");
-                lemmaOptional = lemmaRepository.findByLemmaEquals(lemmaFromQuery);
+                Optional<List<Lemma>> lemmaListOptional = lemmaRepository.findAllByLemma(stringLemma);
+                lemmaListOptional.ifPresent(savedLemmas::addAll);
             } else {
-                System.out.println("else");
-                lemmaOptional = lemmaRepository.findByLemmaAndSiteId(lemmaFromQuery, site.getId());
+                Optional<Lemma> lemmaOptional = lemmaRepository.findByLemmaAndSiteId(stringLemma, site.getId());
+                lemmaOptional.ifPresent(savedLemmas::add);
             }
-            Lemma savedLemma;
-            if (lemmaOptional.isPresent()) {
-                System.out.println("if (lemmaOptional.isPresent())");
-                savedLemma = lemmaOptional.get();
-                if (savedLemma.getFrequency() < 200) {
-                    System.out.println("lemmaSetAfterExcluding: " + lemmaSetAfterExcluding);
-                    System.out.println("lemma that will be added: " + savedLemma);
-                    lemmaSetAfterExcluding.add(savedLemma);
-                    System.out.println("savedLemma added");
-                    System.out.println("lemmaSetAfterExcluding after: " + lemmaSetAfterExcluding);
-                }
-                System.out.println("savedLemma.getFrequency(): " + savedLemma.getLemma() + " " + savedLemma.getFrequency());
-            }
-            System.out.println("Lezddfpsmdd;lg " + lemmaSetAfterExcluding.size());
+        }
+        savedLemmas.forEach(lemma -> {
+            if (lemma.getFrequency() > 200) savedLemmas.remove(lemma);
         });
-        System.out.println("lemmaSetAfterExcluding: " + lemmaSetAfterExcluding.size());
+        System.err.println("[DEBUG] savedLemmas after excluding high frequency lemmas: " + savedLemmas);
+        TreeSet<Lemma> lemmaSetAfterExcluding = new TreeSet<>(savedLemmas);
+        System.err.println("[DEBUG] " + lemmaSetAfterExcluding);
         return lemmaSetAfterExcluding;
     }
 
-    public static void main(String[] args) {
-        Set<Lemma> lemmaSetAfterExcluding = new TreeSet<>();
-        Lemma lemma1 = new Lemma(123,"устройство",85);
-        lemma1.setId(29215);
-        Lemma lemma2 = new Lemma(123,"зарядный",85);
-        lemma2.setId(29261);
+    private TreeSet<Page> findPagesWithTheRarestLemma(Lemma rarestLemma, Site site) {
+        TreeSet<Page> pagesWithTheRarestLemma = new TreeSet<>();
 
-        lemmaSetAfterExcluding.add(lemma1);
-        lemmaSetAfterExcluding.add(lemma2);
+        if (site == null) {
+            pagesWithTheRarestLemma.addAll(indexRepository.findPagesByLemmaId(rarestLemma.getId()));
+        } else {
+            pagesWithTheRarestLemma.addAll(indexRepository.findPagesByLemmaIdAndSiteId(rarestLemma.getId(), site.getId()));
+        }
 
-        System.out.println(lemmaSetAfterExcluding);
+        return pagesWithTheRarestLemma;
     }
+
+    private TreeSet<Page> filterPagesWithTheRarestLemma(Set<Page> pagesWithTheRarestLemma, Set<Lemma> lemmaSetWithoutTheRarestLemma) {
+        TreeSet<Page> filteredPages = new TreeSet<>(pagesWithTheRarestLemma);
+
+        for (Lemma lemma : lemmaSetWithoutTheRarestLemma) {
+            for(Page page : pagesWithTheRarestLemma) {
+                System.err.println("[DEBUG] inside forEach in filterPagesWithTheRarestLemma. filteredPages size: " + filteredPages.size());
+                Set<Lemma> lemmasFromCurrentPage = indexRepository.findAllLemmasByPageId(page.getId());
+                if (!lemmasFromCurrentPage.contains(lemma)) {
+                    filteredPages.remove(page);
+                }
+            }
+        }
+        return filteredPages;
+    }
+
+    private TreeSet<Page> calculateRelevance(Set<Page> filteredPages, Set<Lemma> lemmaSetAfterExcluding) {
+        TreeSet<Page> pagesWithCalculatedRelevance = new TreeSet<>(filteredPages);
+
+        for(Page page : pagesWithCalculatedRelevance) {
+            double relevance = 0;
+            Set<Lemma> lemmasFromCurrentPage = indexRepository.findAllLemmasByPageId(page.getId());
+            for (Lemma lemma : lemmaSetAfterExcluding) {
+                if (lemmasFromCurrentPage.contains(lemma)) relevance++;
+            }
+            page.setRelevance(relevance);
+            System.err.println("[DEBUG] Page: " + page.getPath() + " with relevance: " + page.getRelevance());
+        }
+        return pagesWithCalculatedRelevance;
+    }
+
+    private SearchResult prepareSearchResult(Set<Page> pagesWithCalculatedRelevance, Set<Lemma> lemmaSetAfterExcluding) {
+        return null;
+    }
+
 }
