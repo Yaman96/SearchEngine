@@ -13,7 +13,6 @@ import searchengine.model.Page;
 import searchengine.model.Site;
 import searchengine.repositories.IndexRepository;
 import searchengine.repositories.LemmaRepository;
-import searchengine.repositories.PageRepository;
 import searchengine.repositories.SiteRepository;
 
 import java.util.*;
@@ -26,7 +25,6 @@ public class SearchServiceImpl implements SearchService {
     private final LemmaFinderService lemmaFinderService;
     private final SiteRepository siteRepository;
     private final LemmaRepository lemmaRepository;
-    private final PageRepository pageRepository;
     private final IndexRepository indexRepository;
     private final SnippetFinderImpl snippetFinder;
 
@@ -55,9 +53,8 @@ public class SearchServiceImpl implements SearchService {
         Set<Page> pagesWithCalculatedRelevance = calculateRelevance(filteredPages, lemmaSetAfterExcluding);
         System.err.println("[DEBUG] pagesWithCalculatedRelevance: " + pagesWithCalculatedRelevance);
         Set<SearchData> searchDataSet = prepareSearchData(pagesWithCalculatedRelevance, lemmaSetAfterExcluding);
-        SearchResult searchResult = prepareSuccessSearchResult(searchDataSet, offset, limit);
 
-        return searchResult;
+        return prepareSuccessSearchResult(searchDataSet, offset, limit);
     }
 
     private TreeSet<Lemma> excludeHighFrequencyLemmas(Set<String> stringLemmasFromQuery, Site site) {
@@ -163,47 +160,4 @@ public class SearchServiceImpl implements SearchService {
 
         return new SearchSuccessResult(true, count, subData);
     }
-
-//    public static void main(String[] args) throws IOException {
-//
-//        LemmaFinderService lemmaFinderService1 = new LemmaFinderService(new RussianLuceneMorphology());
-//        Document document = Jsoup.parse("<!DOCTYPE html>\n" +
-//                "<html>\n" +
-//                "<head>\n" +
-//                "    <title>Пример HTML-страницы с текстами</title>\n" +
-//                "</head>\n" +
-//                "<body>\n" +
-//                "    <h1>Заголовок страницы</h1>\n" +
-//                "    <p>Это пример HTML-страницы с несколькими текстами.</p>\n" +
-//                "    \n" +
-//                "    <h2>Подзаголовок</h2>\n" +
-//                "    <p>Здесь находится другой текстовый абзац.</p>\n" +
-//                "    \n" +
-//                "    <p>Вы можете добавить сколько угодно текстовых элементов в свою HTML-страницу.</p>\n" +
-//                "    \n" +
-//                "    <ul>\n" +
-//                "        <li>Элемент списка 1</li>\n" +
-//                "        <li>Элемент списка 2</li>\n" +
-//                "        <li>Элемент списка 3</li>\n" +
-//                "    </ul>\n" +
-//                "    \n" +
-//                "    <p>Здесь также может быть <a href=\"https://www.example.com\">ссылка</a> на другую страницу.</p>\n" +
-//                "</body>\n" +
-//                "</html>\n");
-//
-//        Elements elements = document.getAllElements();
-//        for (Element element : elements) {
-//            if (element.hasText()) {
-//                String text = element.ownText();
-//                String[] words = lemmaFinderService1.arrayContainsRussianWords(text);
-//                for (String word : words) {
-//                    if(lemmaFinderService1.getLemmaSet(word).iterator().next().equals("страница")) {
-//                        text.replaceAll(word, "<b>" + word + "</b>");
-//                    }
-//                }
-//                lemmaFinderService1.getLemmaSet();
-//            }
-//        }
-//    }
-
 }

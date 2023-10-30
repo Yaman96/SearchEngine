@@ -62,11 +62,12 @@ public class IndexingServiceImpl implements IndexingService {
         clearAllMapsAndListsAfterPreviousIndexing();
         createdSites = createNewSites(sites);
         deleteSiteInfo(null, true);
+        PageExtractorService.pageRepository = pageRepository;
         for (Site site : createdSites) {
             Thread thread = new Thread(() -> {
                 try {
                     ForkJoinPool forkJoinPool = new ForkJoinPool(6);
-                    PageExtractorService task = new PageExtractorService(site.getUrl(), site, pageRepository);
+                    PageExtractorService task = new PageExtractorService(site.getUrl(), site);
                     savePagesEvery200pages(task);
                     FORK_JOIN_POOLS.put(site, forkJoinPool);
                     forkJoinPool.invoke(task);
@@ -82,9 +83,7 @@ public class IndexingServiceImpl implements IndexingService {
                     } else {
                         System.out.println("inside search() current thread is interrupted");
                         if (!STOPPED_SITES.contains(site)) {
-                            STOPPED_SITES.forEach(site1 -> {
-                                System.out.println(site1.getId() + " " + site.getId());
-                            });
+                            STOPPED_SITES.forEach(site1 -> System.out.println(site1.getId() + " " + site.getId()));
                             System.out.println("!STOPPED_SITES.contains(site) -> SITE_ERROR.put(site, true)");
                             SITE_ERROR.put(site, true);
                         }
@@ -181,6 +180,7 @@ public class IndexingServiceImpl implements IndexingService {
         }
     }
 
+    @SuppressWarnings("all")
     @Override
     public IndexingResponse indexPage(String url) {
         if (sites.stream().noneMatch(site -> site.getUrl().startsWith(Objects.requireNonNull(getBaseUrl(url))))) {
@@ -218,7 +218,7 @@ public class IndexingServiceImpl implements IndexingService {
                         }
                     }
                 }
-            } else { //Если страницы не было нахой
+            } else {
                 site = siteRepository.findByUrlStartingWith(getBaseUrl(url));
                 page = new Page(url, code, HTML, site);
                 pageRepository.save(page);
@@ -315,23 +315,6 @@ public class IndexingServiceImpl implements IndexingService {
         });
         updateThread.start();
     }
-
-    /*Changes site's status to INDEXED or FAILED*/
-    private void changeSiteStatus(Site site) {
-        if (STOPPED_SITES.contains(site)) {
-            site.setStatus(Status.FAILED.toString());
-            site.setLastError("Indexing is stopped by user from changeSiteStatus");
-            siteRepository.save(site);
-        } else if (SITE_ERROR.getOrDefault(site, false)) {
-            site.setStatus(Status.FAILED.toString());
-            site.setLastError("An error occurred. Indexing is stopped");
-            siteRepository.save(site);
-        } else {
-            site.setStatus(Status.INDEXED.toString());
-            siteRepository.save(site);
-        }
-    }
-
     public static String getBaseUrl(String url) {
         try {
             URI uri = new URI(url);
@@ -391,27 +374,6 @@ public class IndexingServiceImpl implements IndexingService {
                 System.out.println("Index lemma_id = " + index.getLemmaId() + " count: " + index.getRank());
                 indexList.add(index);
             });
-//            for (Map.Entry<String, Integer> entry : lemma_Count.entrySet()) {
-//                String lemmaString = entry.getKey();
-//                Integer count = entry.getValue();
-//                Lemma lemma = new Lemma(siteId, lemmaString, 1);
-//
-//                boolean found = false;
-//                for (Lemma existingLemma : lemmasToSave) {
-//                    if (existingLemma.equals(lemma)) {
-//                        existingLemma.incrementFrequency();
-//                        found = true;
-//                        break;
-//                    }
-//                }
-//                if (!found) {
-//                    lemma = lemmaRepository.save(lemma);
-//                    System.out.println("new lemma: " + lemma.getLemma() + " : " + lemma.getFrequency());
-//                    lemmasToSave.add(lemma);
-//                }
-//                Index index = new Index(pageId, lemma.getId(), count);
-//                indexList.add(index);
-//            }
         }
         System.out.println("lemmas count: " + lemmasToSave.size());
         lemmasToSave.forEach(lemma -> System.err.println(lemma.getLemma() + " : " + lemma.getFrequency() + " (id : " + lemma.getId() + ") from thread: " + Thread.currentThread().getName()));
@@ -442,6 +404,7 @@ public class IndexingServiceImpl implements IndexingService {
         return "INSERT INTO index_1 (page_id, lemma_id, rank_1) VALUES" + values;
     }
 
+    @SuppressWarnings("all")
     private void awaitThreadFinish() {
         while (MAIN_THREADS.values().stream().anyMatch(Thread::isAlive)) {
             System.out.println("Waiting main threads to finish");
@@ -453,6 +416,7 @@ public class IndexingServiceImpl implements IndexingService {
         }
     }
 
+    @SuppressWarnings("all")
     private void savePagesEvery200pages(PageExtractorService task) {
         Thread currentThread = Thread.currentThread();
         Thread thread = new Thread(() -> {
@@ -460,9 +424,9 @@ public class IndexingServiceImpl implements IndexingService {
                 if (!currentThread.isAlive()) {
                     break;
                 }
-                System.out.println("Page list size: " + task.pageList.size() + " from thread: " + Thread.currentThread().getName());
-                System.out.println("Link list size: " + task.links.size() + " from thread: " + Thread.currentThread().getName());
-                if (task.pageList.size() >= 200) {
+                System.out.println("Page list size: " + PageExtractorService.pageList.size() + " from thread: " + Thread.currentThread().getName());
+                System.out.println("Link list size: " + PageExtractorService.links.size() + " from thread: " + Thread.currentThread().getName());
+                if (PageExtractorService.pageList.size() >= 200) {
                     task.savePages();
                 }
                 try {

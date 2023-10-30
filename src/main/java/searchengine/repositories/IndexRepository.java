@@ -33,11 +33,6 @@ public interface IndexRepository extends CrudRepository<Index, Integer> {
     @Query(value = "delete from Index i")
     void deleteAllIndexes();
 
-    ArrayList<Index> findAllByLemmaId(long lemmaId);
-
-    @Transactional
-    Index findByPageIdAndLemmaId(long pageId, long lemmaId);
-
     @Query("SELECT p FROM Page p " +
             "INNER JOIN Index i ON i.pageId = p.id " +
             "WHERE i.lemmaId = :lemmaId AND p.site.id = :siteId")
@@ -47,9 +42,4 @@ public interface IndexRepository extends CrudRepository<Index, Integer> {
             "INNER JOIN Index i ON i.pageId = p.id " +
             "WHERE i.lemmaId = :lemmaId")
     List<Page> findPagesByLemmaId(@Param("lemmaId") long lemmaId);
-
-    @Query("SELECT i FROM Page p " +
-            "INNER JOIN Index i ON i.pageId = p.id " +
-            "WHERE i.lemmaId = :lemmaId AND p.site.id = :siteId")
-    List<Index> findIndexesByLemmaIdAndSiteId(@Param("lemmaId") long lemmaId, @Param("siteId") long siteId);
 }

@@ -2,7 +2,6 @@ package searchengine.services;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import searchengine.config.SitesList;
 import searchengine.dto.statistics.DetailedStatisticsItem;
 import searchengine.dto.statistics.StatisticsData;
 import searchengine.dto.statistics.StatisticsResponse;
@@ -10,33 +9,23 @@ import searchengine.dto.statistics.TotalStatistics;
 import searchengine.model.Lemma;
 import searchengine.model.Site;
 import searchengine.model.Status;
-import searchengine.repositories.IndexRepository;
 import searchengine.repositories.LemmaRepository;
-import searchengine.repositories.PageRepository;
 import searchengine.repositories.SiteRepository;
 
 import java.time.ZoneOffset;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
 public class StatisticsServiceImpl implements StatisticsService {
 
-    private final Random random = new Random();
-    private final SitesList sites;
     private final SiteRepository siteRepository;
-    private final PageRepository pageRepository;
     private final LemmaRepository lemmaRepository;
-    private final IndexRepository indexRepository;
 
     @Override
     public StatisticsResponse getStatistics() {
-        String[] statuses = {"INDEXED", "FAILED", "INDEXING"};
-        String[] errors = {
-                "Ошибка индексации: главная страница сайта не доступна",
-                "Ошибка индексации: сайт не доступен",
-                ""
-        };
+
         Iterable<searchengine.model.Site> siteIterable = siteRepository.findAll();
         int siteCount = 0;
         List<searchengine.model.Site> siteList = new ArrayList<>();

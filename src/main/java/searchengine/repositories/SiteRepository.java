@@ -13,8 +13,4 @@ public interface SiteRepository extends CrudRepository<Site,Long> {
 
     @Transactional
     Site findByUrlStartingWith(String url);
-
-    @Transactional
-     void deleteByNameContainsIgnoreCase(String siteName);
-    void deleteById(long siteId);
 }

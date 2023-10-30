@@ -26,29 +26,6 @@ public interface LemmaRepository extends CrudRepository<Lemma,Integer> {
     Optional<Lemma> findById(long lemmaId);
 
     @Transactional
-    default List<Long> saveOrUpdateAll(List<Lemma> lemmaList) {
-        List<Long> savedLemmaIds = new ArrayList<>();
-        lemmaList.forEach(l -> {
-            savedLemmaIds.add(saveOrUpdate(l));
-        });
-        return savedLemmaIds;
-    }
-
-    @Transactional
-    default Long saveOrUpdate(Lemma lemma) {
-        Optional<Lemma> lemmaOptional = findByLemmaEquals(lemma.getLemma());
-        Lemma savedLemma;
-        if(lemmaOptional.isPresent()) {
-            savedLemma = lemmaOptional.get();
-            savedLemma.setFrequency(savedLemma.getFrequency() + lemma.getFrequency());
-            savedLemma = save(savedLemma);
-        } else {
-            savedLemma = save(lemma);
-        }
-        return savedLemma.getId();
-    }
-
-    @Transactional
     ArrayList<Lemma> findBySiteId(long siteId);
 
     @Modifying

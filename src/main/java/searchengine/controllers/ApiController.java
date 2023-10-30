@@ -9,9 +9,6 @@ import searchengine.services.IndexingService;
 import searchengine.services.SearchService;
 import searchengine.services.StatisticsService;
 
-import java.util.ArrayList;
-import java.util.List;
-
 @RestController
 @RequestMapping("/api")
 public class ApiController {
@@ -21,8 +18,6 @@ public class ApiController {
     private final IndexingService indexingService;
 
     private final SearchService searchService;
-
-    private ArrayList<IndexingResponse> results = new ArrayList<>();
 
     public ApiController(StatisticsService statisticsService, IndexingService indexingService, SearchService searchService) {
         this.statisticsService = statisticsService;

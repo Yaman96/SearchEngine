@@ -10,7 +10,6 @@ import searchengine.model.Page;
 import searchengine.model.Site;
 
 import java.util.ArrayList;
-import java.util.List;
 
 @Repository
 public interface PageRepository extends CrudRepository<Page, Integer> {
@@ -26,21 +25,9 @@ public interface PageRepository extends CrudRepository<Page, Integer> {
 
     Page findByPath(String path);
 
-    @Transactional
-    int deleteById(long pageId);
-
     Page findById(long pageId);
 
     @Transactional
     @Query("SELECT p.id FROM Page p WHERE p.site.id = :siteId")
     ArrayList<Long> getPagesIdBySiteId(@Param("siteId") long siteId);
-
-    @Transactional
-    default ArrayList<Long> getPagesIdBySiteIdWithThreadCheck(@Param("siteId") long siteId) {
-        if(!Thread.currentThread().isInterrupted()) {
-            return getPagesIdBySiteId(siteId);
-        }
-        System.out.println("inside getPagesIdBySiteIdWithThreadCheck() Current thread is interrupted");
-        return null;
-    }
 }
