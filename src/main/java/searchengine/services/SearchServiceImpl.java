@@ -1,7 +1,11 @@
 package searchengine.services;
 
 import lombok.RequiredArgsConstructor;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Document;
 import org.springframework.stereotype.Service;
+import searchengine.dto.search.SearchData;
+import searchengine.dto.search.SearchErrorResult;
 import searchengine.dto.search.SearchResult;
 import searchengine.dto.search.SearchSuccessResult;
 import searchengine.model.Lemma;
@@ -28,25 +32,32 @@ public class SearchServiceImpl implements SearchService {
 
     @Override
     public SearchResult search(String query, String site, int offset, int limit) {
+        if (query.isEmpty()) {
+            return new SearchErrorResult(false, "search query is empty");
+        }
         Set<String> stringLemmasFromQuery = lemmaFinderService.getLemmaSet(query);
         Site selectedSite = siteRepository.findByUrlStartingWith(site);
         Set<Lemma> lemmaSetAfterExcluding = excludeHighFrequencyLemmas(stringLemmasFromQuery, selectedSite);
+        if (lemmaSetAfterExcluding.isEmpty()) {
+            return new SearchErrorResult(false,"query not found on this site");
+        }
         Lemma rarestLemma = lemmaSetAfterExcluding.iterator().next();
         System.err.println("[DEBUG] rarestLemma: " + rarestLemma);
-        Set<Page> pagesWithTheRarestLemma = findPagesWithTheRarestLemma(rarestLemma,selectedSite);
+        Set<Page> pagesWithTheRarestLemma = findPagesWithTheRarestLemma(rarestLemma, selectedSite);
         System.err.println("[DEBUG] pagesWithTheRarestLemma: " + pagesWithTheRarestLemma);
         Set<Lemma> lemmaSetWithoutTheRarestLemma = lemmaSetAfterExcluding.stream().skip(1).collect(Collectors.toSet());
         System.err.println("[DEBUG] lemmaSetWithoutTheRarestLemma: " + lemmaSetWithoutTheRarestLemma);
-        Set<Page> filteredPages = filterPagesWithTheRarestLemma(pagesWithTheRarestLemma,lemmaSetWithoutTheRarestLemma);
+        Set<Page> filteredPages = filterPagesWithTheRarestLemma(pagesWithTheRarestLemma, lemmaSetWithoutTheRarestLemma);
         System.err.println("[DEBUG] filteredPages: " + filteredPages);
-        if(filteredPages.isEmpty()) {
-            return new SearchSuccessResult(true,0, new ArrayList<>());
+        if (filteredPages.isEmpty()) {
+            return new SearchSuccessResult(true, 0, new HashSet<>());
         }
-        Set<Page> pagesWithCalculatedRelevance = calculateRelevance(filteredPages,lemmaSetAfterExcluding);
+        Set<Page> pagesWithCalculatedRelevance = calculateRelevance(filteredPages, lemmaSetAfterExcluding);
         System.err.println("[DEBUG] pagesWithCalculatedRelevance: " + pagesWithCalculatedRelevance);
-        SearchResult searchResult;
+        Set<SearchData> searchDataSet = prepareSearchData(pagesWithCalculatedRelevance, lemmaSetAfterExcluding);
+        SearchResult searchResult = prepareSuccessSearchResult(searchDataSet, offset, limit);
 
-        return null;
+        return searchResult;
     }
 
     private TreeSet<Lemma> excludeHighFrequencyLemmas(Set<String> stringLemmasFromQuery, Site site) {
@@ -86,7 +97,7 @@ public class SearchServiceImpl implements SearchService {
         TreeSet<Page> filteredPages = new TreeSet<>(pagesWithTheRarestLemma);
 
         for (Lemma lemma : lemmaSetWithoutTheRarestLemma) {
-            for(Page page : pagesWithTheRarestLemma) {
+            for (Page page : pagesWithTheRarestLemma) {
                 System.err.println("[DEBUG] inside forEach in filterPagesWithTheRarestLemma. filteredPages size: " + filteredPages.size());
                 Set<Lemma> lemmasFromCurrentPage = indexRepository.findAllLemmasByPageId(page.getId());
                 if (!lemmasFromCurrentPage.contains(lemma)) {
@@ -100,7 +111,7 @@ public class SearchServiceImpl implements SearchService {
     private TreeSet<Page> calculateRelevance(Set<Page> filteredPages, Set<Lemma> lemmaSetAfterExcluding) {
         TreeSet<Page> pagesWithCalculatedRelevance = new TreeSet<>(filteredPages);
 
-        for(Page page : pagesWithCalculatedRelevance) {
+        for (Page page : pagesWithCalculatedRelevance) {
             double relevance = 0;
             Set<Lemma> lemmasFromCurrentPage = indexRepository.findAllLemmasByPageId(page.getId());
             for (Lemma lemma : lemmaSetAfterExcluding) {
@@ -112,8 +123,87 @@ public class SearchServiceImpl implements SearchService {
         return pagesWithCalculatedRelevance;
     }
 
-    private SearchResult prepareSearchResult(Set<Page> pagesWithCalculatedRelevance, Set<Lemma> lemmaSetAfterExcluding) {
-        return null;
+    private TreeSet<SearchData> prepareSearchData(Set<Page> pagesWithCalculatedRelevance, Set<Lemma> lemmaSetAfterExcluding) {
+        TreeSet<SearchData> searchDataSet = new TreeSet<>();
+        for (Page page : pagesWithCalculatedRelevance) {
+            Document document = Jsoup.parse(page.getContent());
+
+            String site = page.getSite().getUrl();
+            String siteName = page.getSite().getName();
+            String uri = page.getPath().replace(page.getSite().getUrl(),"");
+            System.err.println("[DEBUG] uri: " + uri);
+            String title = document.title();
+            String snippet = snippetFinder.findSnippet(lemmaSetAfterExcluding, page);
+            double relevance = page.getRelevance();
+
+            SearchData searchData = new SearchData(site, siteName, uri, title, snippet, relevance);
+            searchDataSet.add(searchData);
+            System.err.println("[DEBUG] searchData: " + searchData);
+        }
+        return searchDataSet;
     }
+
+    private SearchResult prepareSuccessSearchResult(Set<SearchData> searchDataSet, int offset, int limit) {
+        if (limit == 0) {
+            limit = 20;
+        }
+
+        int count = searchDataSet.size();
+        System.err.println("searchDataSet.size(): " + count);
+        System.err.println("searchDataSet: " + searchDataSet);
+        TreeSet<SearchData> data = new TreeSet<>(searchDataSet);
+
+        int safeLimit = limit;
+
+        if ((count - offset) < limit) {
+            safeLimit = count;
+        }
+
+        TreeSet<SearchData> subData = new TreeSet<>(new ArrayList<>(data).subList(offset, offset + safeLimit));
+
+        return new SearchSuccessResult(true, count, subData);
+    }
+
+//    public static void main(String[] args) throws IOException {
+//
+//        LemmaFinderService lemmaFinderService1 = new LemmaFinderService(new RussianLuceneMorphology());
+//        Document document = Jsoup.parse("<!DOCTYPE html>\n" +
+//                "<html>\n" +
+//                "<head>\n" +
+//                "    <title>Пример HTML-страницы с текстами</title>\n" +
+//                "</head>\n" +
+//                "<body>\n" +
+//                "    <h1>Заголовок страницы</h1>\n" +
+//                "    <p>Это пример HTML-страницы с несколькими текстами.</p>\n" +
+//                "    \n" +
+//                "    <h2>Подзаголовок</h2>\n" +
+//                "    <p>Здесь находится другой текстовый абзац.</p>\n" +
+//                "    \n" +
+//                "    <p>Вы можете добавить сколько угодно текстовых элементов в свою HTML-страницу.</p>\n" +
+//                "    \n" +
+//                "    <ul>\n" +
+//                "        <li>Элемент списка 1</li>\n" +
+//                "        <li>Элемент списка 2</li>\n" +
+//                "        <li>Элемент списка 3</li>\n" +
+//                "    </ul>\n" +
+//                "    \n" +
+//                "    <p>Здесь также может быть <a href=\"https://www.example.com\">ссылка</a> на другую страницу.</p>\n" +
+//                "</body>\n" +
+//                "</html>\n");
+//
+//        Elements elements = document.getAllElements();
+//        for (Element element : elements) {
+//            if (element.hasText()) {
+//                String text = element.ownText();
+//                String[] words = lemmaFinderService1.arrayContainsRussianWords(text);
+//                for (String word : words) {
+//                    if(lemmaFinderService1.getLemmaSet(word).iterator().next().equals("страница")) {
+//                        text.replaceAll(word, "<b>" + word + "</b>");
+//                    }
+//                }
+//                lemmaFinderService1.getLemmaSet();
+//            }
+//        }
+//    }
 
 }

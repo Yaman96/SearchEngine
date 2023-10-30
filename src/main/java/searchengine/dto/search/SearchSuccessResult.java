@@ -5,6 +5,7 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import java.util.List;
+import java.util.Set;
 
 @Data
 @AllArgsConstructor
@@ -12,5 +13,5 @@ public class SearchSuccessResult implements SearchResult {
 
     private boolean result;
     private int count;
-    private List<SearchData> data;
+    private Set<SearchData> data;
 }

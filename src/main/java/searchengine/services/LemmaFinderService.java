@@ -99,7 +99,7 @@ public class LemmaFinderService {
         return false;
     }
 
-    private String[] arrayContainsRussianWords(String text) {
+    public String[] arrayContainsRussianWords(String text) {
         return text.toLowerCase(Locale.ROOT)
                 .replaceAll("([^а-я\\s])", " ")
                 .trim()
@@ -114,5 +114,16 @@ public class LemmaFinderService {
             }
         }
         return true;
+    }
+
+    public LuceneMorphology getLuceneMorphology() {
+        return luceneMorphology;
+    }
+
+    public static void main(String[] args) throws IOException {
+        LuceneMorphology luceneMorphology1 = new RussianLuceneMorphology();
+
+        List<String> forms = luceneMorphology1.getNormalForms("иногородним");
+        System.out.println(forms);
     }
 }
