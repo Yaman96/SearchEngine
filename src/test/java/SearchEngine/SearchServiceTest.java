@@ -5,6 +5,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import searchengine.dto.search.SearchResult;
 import searchengine.model.Lemma;
@@ -34,8 +35,8 @@ public class SearchServiceTest {
 
     @Test
     public void testSearchIfAllQueryWordsAreTooFrequent() {
-        Site site = siteRepository.findAnyIndexedSite();
-        ArrayList<Lemma> lemmasFromDataBase = new ArrayList<>(lemmaRepository.findBySiteId());
+        Site site = siteRepository.findAnyIndexedSite(PageRequest.of(0, 1)).iterator().next();
+        ArrayList<Lemma> lemmasFromDataBase = new ArrayList<>(lemmaRepository.findBySiteId(site.getId()));
         SearchResult searchResult = searchService.search("лазерное излучение", "ipfran",0,20);
     }
 

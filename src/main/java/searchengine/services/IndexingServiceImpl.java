@@ -66,7 +66,7 @@ public class IndexingServiceImpl implements IndexingService {
         for (Site site : createdSites) {
             Thread thread = new Thread(() -> {
                 try {
-                    ForkJoinPool forkJoinPool = new ForkJoinPool(6);
+                    ForkJoinPool forkJoinPool = new ForkJoinPool(12);
                     PageExtractorService task = new PageExtractorService(site.getUrl(), site);
                     savePagesEvery200pages(task);
                     FORK_JOIN_POOLS.put(site, forkJoinPool);

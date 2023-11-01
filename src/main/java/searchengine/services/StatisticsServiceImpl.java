@@ -10,6 +10,7 @@ import searchengine.model.Lemma;
 import searchengine.model.Site;
 import searchengine.model.Status;
 import searchengine.repositories.LemmaRepository;
+import searchengine.repositories.PageRepository;
 import searchengine.repositories.SiteRepository;
 
 import java.time.ZoneOffset;
@@ -22,6 +23,7 @@ public class StatisticsServiceImpl implements StatisticsService {
 
     private final SiteRepository siteRepository;
     private final LemmaRepository lemmaRepository;
+    private final PageRepository pageRepository;
 
     @Override
     public StatisticsResponse getStatistics() {
@@ -43,8 +45,8 @@ public class StatisticsServiceImpl implements StatisticsService {
             DetailedStatisticsItem item = new DetailedStatisticsItem();
             item.setName(site.getName());
             item.setUrl(site.getUrl());
-            int pages = site.getPages().size();
-            int lemmas = lemmaList(site).size();
+            int pages = pageRepository.countAllBySiteId(site.getId());
+            int lemmas = lemmaRepository.countAllBySiteId(site.getId());
             item.setPages(pages);
             item.setLemmas(lemmas);
             item.setStatus(site.getStatus());

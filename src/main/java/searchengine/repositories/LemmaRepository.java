@@ -36,4 +36,6 @@ public interface LemmaRepository extends CrudRepository<Lemma,Integer> {
     @Transactional
     @Query(value = "DELETE FROM Lemma l")
     void deleteAllLemmas();
+
+    int countAllBySiteId(long siteId);
 }

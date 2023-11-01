@@ -1,5 +1,7 @@
 package searchengine.repositories;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.CrudRepository;
 import org.springframework.stereotype.Repository;
@@ -15,6 +17,6 @@ public interface SiteRepository extends CrudRepository<Site,Long> {
     @Transactional
     Site findByUrlStartingWith(String url);
 
-    @Query(value = "SELECT s FROM Site s WHERE s.status = 'INDEXED' LIMIT 1")
-    Site findAnyIndexedSite();
+    @Query(value = "SELECT s FROM Site s WHERE s.status = 'INDEXED'")
+    Page<Site> findAnyIndexedSite(Pageable pageable);
 }

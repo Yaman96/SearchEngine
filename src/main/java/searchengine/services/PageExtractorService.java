@@ -10,11 +10,13 @@ import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
 import searchengine.model.Page;
 import searchengine.model.Site;
-import searchengine.model.Status;
 import searchengine.repositories.PageRepository;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.RecursiveAction;
@@ -28,7 +30,7 @@ public class PageExtractorService extends RecursiveAction {
     public static final CopyOnWriteArraySet<Page> pageList = new CopyOnWriteArraySet<>();
     private Site site;
     public static PageRepository pageRepository;
-    private Page page;
+    private String link;
     private static final String USER_AGENT = "Mozilla/5.0 (Windows; U; WindowsNT 5.1; en-US; rv1.8.1.6) Gecko/20070725 Firefox/2.0.0.6";
     private static final String REFERER = "https://www.google.com";
 
@@ -45,27 +47,49 @@ public class PageExtractorService extends RecursiveAction {
 
         Document document;
         Elements elements;
-        document = Jsoup.parse(page.getContent());
+        int responseCode;
+
+        try {
+            Thread.sleep(200);
+            Connection.Response response = getResponse(link);
+            responseCode = response.statusCode();
+            document = response.parse();
+        } catch (InterruptedException | IOException e) {
+            Page errorPage = new Page(link,404,"404", site);
+            pageList.add(errorPage);
+            e.printStackTrace();
+            return;
+        }
+
+        Page currentPage = new Page(link,responseCode, document.html(), site);
+        pageList.add(currentPage);
         elements = document.select("a[href]");
 
         for (Element element : elements) {
-            String link = site.getUrl() + element.attr("href").replaceFirst("/", "");
+            String link;
+            if (site.getUrl().endsWith("/")) {
+                link = site.getUrl() + element.attr("href").replaceFirst("/", "");
+            } else {
+                link = site.getUrl() + element.attr("href");
+            }
 
             if (isValidPageLink(link)) {
                 PageExtractorService extractorService = new PageExtractorService(link, site);
                 extractorService.fork();
                 tasks.add(extractorService);
                 links.add(link);
-            } else {
-                if (!isValidPageLink(link)) {
-                    invalidLinks.add(link);
-                }
             }
+//            else {
+//                if (!isValidPageLink(link)) {
+//                    invalidLinks.add(link);
+//                }
+//            }
         }
     }
 
     @NotNull
     public static Connection.Response getResponse(String path) throws InterruptedException, IOException {
+        System.err.println("[DEBUG] getResponse(String path) got path: " + path);
         Connection.Response response;
         Thread.sleep(200);
         response = Jsoup.connect(path)
@@ -81,11 +105,16 @@ public class PageExtractorService extends RecursiveAction {
     }
 
     public boolean isValidPageLink(String link) {
+        boolean isMatch = Pattern.compile("\\S+@\\S+\\.\\S+")
+                .matcher(link)
+                .find();
+
         Pattern pattern1 = Pattern.compile(".*https?:.*https?:.*");
         boolean isMatch1 = pattern1.matcher(link).matches();
 
         Pattern pattern2 = Pattern.compile("^https?:\\/\\/(?:www\\.)?[-a-zA-Z0-9@:%._\\+~#=]{1,256}\\.[a-zA-Z0-9()]{1,6}\\b(?:[-a-zA-Z0-9()@:%_\\+.~#?&\\/=]*)$");
         boolean isMatch2 = pattern2.matcher(link).matches();
+
 
         return !link.isEmpty() &&
                 link.startsWith(site.getUrl()) &&
@@ -95,6 +124,8 @@ public class PageExtractorService extends RecursiveAction {
                 !link.contains("#") &&
                 !link.contains("tel:") &&
 //                link.contains(".html") &&
+                !link.contains("tg:/") &&
+                !isMatch &&
                 !isMatch1 &&
                 isMatch2 &&
                 !links.contains(link);
@@ -111,25 +142,9 @@ public class PageExtractorService extends RecursiveAction {
         }
     }
 
-    public PageExtractorService(String mainPagePath, Site site) {
-        try {
-            Thread.sleep(200);
-            Connection.Response response = getResponse(mainPagePath);
-            int responseCode = response.statusCode();
-            Document document = response.parse();
-            this.page = new Page(mainPagePath, responseCode, document.html(), site);
-            this.site = site;
-            pageList.add(this.page);
-        } catch (IOException e) {
-//            site.setLastError(Arrays.toString(e.getStackTrace()));
-//            site.setStatus(Status.FAILED.toString());
-            this.page = new Page(mainPagePath, 404, "404 not found", site);
-            this.site = site;
-            pageList.add(this.page);
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
+    public PageExtractorService(String pagePath, Site site) {
+        this.link = pagePath;
+        this.site = site;
     }
 
     public static void main(String[] args) {
