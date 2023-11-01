@@ -21,6 +21,6 @@ public class SearchData implements Comparable<SearchData> {
         if (relevance == o.relevance) {
             return uri.compareTo(o.uri);
         }
-        return Double.compare(relevance,o.relevance);
+        return -Double.compare(relevance,o.relevance);
     }
 }

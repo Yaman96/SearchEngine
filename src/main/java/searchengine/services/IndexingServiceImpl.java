@@ -103,14 +103,13 @@ public class IndexingServiceImpl implements IndexingService {
             updateIndexingTime(site, thread);
         });
         awaitThreadFinish();
-//        createdSites.forEach(this::changeSiteStatus);
         indexingIsRunning = false;
+        PageExtractorService.invalidLinks.removeAll(PageExtractorService.links);
+        PageExtractorService.invalidLinks.forEach(System.out::println);
         if (!SITE_ERROR.isEmpty() && SITE_ERROR.values().stream().allMatch(error -> error.equals(true))) {
-            System.out.println(SITE_ERROR);
             return new IndexingErrorResponse(false, "No site has been indexed. An error occurred during the indexing of all sites");
         }
         if (!SITE_ERROR.isEmpty() && SITE_ERROR.values().stream().anyMatch(error -> error.equals(true))) {
-            System.out.println(SITE_ERROR);
             return new IndexingErrorResponse(true, "Not all sites has been indexed. Error occurred while indexing: " + SITE_ERROR.keySet().stream().map(Site::getName).collect(Collectors.toSet()));
         }
         if (!STOPPED_SITES.isEmpty() && STOPPED_SITES.size() == createdSites.size()) {
@@ -176,7 +175,6 @@ public class IndexingServiceImpl implements IndexingService {
             indexingIsRunning = true;
             System.err.println(Arrays.toString(e.getStackTrace()));
             throw new RuntimeException(e);
-//            return new IndexingErrorResponse(false, "Indexing is not stopped. An error occurred. Error: " + Arrays.toString(e.getStackTrace()));
         }
     }
 
@@ -352,7 +350,6 @@ public class IndexingServiceImpl implements IndexingService {
         List<Page> savedPages = new ArrayList<>();
         batch.forEach(pageId -> savedPages.add(pageRepository.findById(pageId)));
         List<Index> indexList = new ArrayList<>();
-//        Set<Lemma> lemmasToSave = new HashSet<>();
 
         for (Page page : savedPages) {
             long pageId = page.getId();

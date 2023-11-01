@@ -28,6 +28,6 @@ public interface PageRepository extends CrudRepository<Page, Integer> {
     Page findById(long pageId);
 
     @Transactional
-    @Query("SELECT p.id FROM Page p WHERE p.site.id = :siteId")
+    @Query("SELECT p.id FROM Page p WHERE p.site.id = :siteId AND p.code >= 200 AND p.code < 300")
     ArrayList<Long> getPagesIdBySiteId(@Param("siteId") long siteId);
 }

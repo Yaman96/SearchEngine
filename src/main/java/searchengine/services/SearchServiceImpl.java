@@ -8,6 +8,7 @@ import searchengine.dto.search.SearchData;
 import searchengine.dto.search.SearchErrorResult;
 import searchengine.dto.search.SearchResult;
 import searchengine.dto.search.SearchSuccessResult;
+import searchengine.model.Index;
 import searchengine.model.Lemma;
 import searchengine.model.Page;
 import searchengine.model.Site;
@@ -37,13 +38,13 @@ public class SearchServiceImpl implements SearchService {
         Site selectedSite = siteRepository.findByUrlStartingWith(site);
         Set<Lemma> lemmaSetAfterExcluding = excludeHighFrequencyLemmas(stringLemmasFromQuery, selectedSite);
         if (lemmaSetAfterExcluding.isEmpty()) {
-            return new SearchErrorResult(false,"query not found on this site");
+            return new SearchErrorResult(false,"query not found on this site or the query is too frequent");
         }
         Lemma rarestLemma = lemmaSetAfterExcluding.iterator().next();
         System.err.println("[DEBUG] rarestLemma: " + rarestLemma);
         Set<Page> pagesWithTheRarestLemma = findPagesWithTheRarestLemma(rarestLemma, selectedSite);
         System.err.println("[DEBUG] pagesWithTheRarestLemma: " + pagesWithTheRarestLemma);
-        Set<Lemma> lemmaSetWithoutTheRarestLemma = lemmaSetAfterExcluding.stream().skip(1).collect(Collectors.toSet());
+        Set<Lemma> lemmaSetWithoutTheRarestLemma = lemmaSetAfterExcluding.size() == 1 ? lemmaSetAfterExcluding : lemmaSetAfterExcluding.stream().skip(1).collect(Collectors.toSet());
         System.err.println("[DEBUG] lemmaSetWithoutTheRarestLemma: " + lemmaSetWithoutTheRarestLemma);
         Set<Page> filteredPages = filterPagesWithTheRarestLemma(pagesWithTheRarestLemma, lemmaSetWithoutTheRarestLemma);
         System.err.println("[DEBUG] filteredPages: " + filteredPages);
@@ -69,9 +70,7 @@ public class SearchServiceImpl implements SearchService {
                 lemmaOptional.ifPresent(savedLemmas::add);
             }
         }
-        savedLemmas.forEach(lemma -> {
-            if (lemma.getFrequency() > 200) savedLemmas.remove(lemma);
-        });
+        savedLemmas.removeIf(lemma -> lemma.getFrequency() > 500);
         System.err.println("[DEBUG] savedLemmas after excluding high frequency lemmas: " + savedLemmas);
         TreeSet<Lemma> lemmaSetAfterExcluding = new TreeSet<>(savedLemmas);
         System.err.println("[DEBUG] " + lemmaSetAfterExcluding);
@@ -94,13 +93,16 @@ public class SearchServiceImpl implements SearchService {
         TreeSet<Page> filteredPages = new TreeSet<>(pagesWithTheRarestLemma);
 
         for (Lemma lemma : lemmaSetWithoutTheRarestLemma) {
-            for (Page page : pagesWithTheRarestLemma) {
+            TreeSet<Page> pagesToRemove = new TreeSet<>();
+            for (Page page : filteredPages) {
                 System.err.println("[DEBUG] inside forEach in filterPagesWithTheRarestLemma. filteredPages size: " + filteredPages.size());
-                Set<Lemma> lemmasFromCurrentPage = indexRepository.findAllLemmasByPageId(page.getId());
-                if (!lemmasFromCurrentPage.contains(lemma)) {
-                    filteredPages.remove(page);
+                Optional<Index> indexOptional = indexRepository.findByPageIdAndLemmaId(page.getId(), lemma.getId());
+                if (indexOptional.isEmpty()) {
+                    System.out.println("removing page");
+                    pagesToRemove.add(page);
                 }
             }
+            filteredPages.removeAll(pagesToRemove);
         }
         return filteredPages;
     }
@@ -110,9 +112,14 @@ public class SearchServiceImpl implements SearchService {
 
         for (Page page : pagesWithCalculatedRelevance) {
             double relevance = 0;
-            Set<Lemma> lemmasFromCurrentPage = indexRepository.findAllLemmasByPageId(page.getId());
+//            Set<Lemma> lemmasFromCurrentPage = indexRepository.findAllLemmasByPageId(page.getId());
             for (Lemma lemma : lemmaSetAfterExcluding) {
-                if (lemmasFromCurrentPage.contains(lemma)) relevance++;
+//                if (lemmasFromCurrentPage.contains(lemma)) relevance++;
+                Optional<Index> indexOptional = indexRepository.findByPageIdAndLemmaId(page.getId(),lemma.getId());
+                if(indexOptional.isPresent()) {
+                    Index index = indexOptional.get();
+                    relevance += index.getRank();
+                }
             }
             page.setRelevance(relevance);
             System.err.println("[DEBUG] Page: " + page.getPath() + " with relevance: " + page.getRelevance());
