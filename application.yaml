@@ -22,8 +22,8 @@ indexing-settings:
 #      name: PlayBack.Ru
 #    - url: https://www.smallsitesbysarah.com/
 #      name: smallsitesbysarah
-    - url: https://lenta.ru
-      name: Лента.ру
+#    - url: https://lenta.ru
+#      name: Лента.ру
 #    - url: https://www.bankrate.com/
 #      name: bankrate
 #    - url: https://ipfran.ru/

@@ -13,6 +13,7 @@ import searchengine.model.Site;
 import searchengine.repositories.PageRepository;
 
 import java.io.IOException;
+import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -57,7 +58,7 @@ public class PageExtractorService extends RecursiveAction {
         } catch (InterruptedException | IOException e) {
             Page errorPage = new Page(link,404,"404", site);
             pageList.add(errorPage);
-            e.printStackTrace();
+            System.err.println("An exception occurred: " + e.getClass().getName());
             return;
         }
 
