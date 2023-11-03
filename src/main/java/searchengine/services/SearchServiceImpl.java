@@ -41,25 +41,18 @@ public class SearchServiceImpl implements SearchService {
             return new SearchErrorResult(false,"query not found on this site or the query is too frequent");
         }
         Lemma rarestLemma = lemmaSetAfterExcluding.iterator().next();
-        System.err.println("[DEBUG] rarestLemma: " + rarestLemma);
         Set<Page> pagesWithTheRarestLemma = findPagesWithTheRarestLemma(rarestLemma, selectedSite);
-        System.err.println("[DEBUG] pagesWithTheRarestLemma: " + pagesWithTheRarestLemma);
         Set<Lemma> lemmaSetWithoutTheRarestLemma = lemmaSetAfterExcluding.size() == 1 ? lemmaSetAfterExcluding : lemmaSetAfterExcluding.stream().skip(1).collect(Collectors.toSet());
-        System.err.println("[DEBUG] lemmaSetWithoutTheRarestLemma: " + lemmaSetWithoutTheRarestLemma);
-        Set<Page> filteredPages = filterPagesWithTheRarestLemma(pagesWithTheRarestLemma, lemmaSetWithoutTheRarestLemma);
-        System.err.println("[DEBUG] filteredPages: " + filteredPages);
+        Set<Page> filteredPages = filterPagesWithTheRarestLemma(pagesWithTheRarestLemma, lemmaSetWithoutTheRarestLemma, rarestLemma);
         if (filteredPages.isEmpty()) {
             return new SearchSuccessResult(true, 0, new HashSet<>());
         }
-        Set<Page> pagesWithCalculatedRelevance = calculateRelevance(filteredPages, lemmaSetAfterExcluding);
-        System.err.println("[DEBUG] pagesWithCalculatedRelevance: " + pagesWithCalculatedRelevance);
-        Set<SearchData> searchDataSet = prepareSearchData(pagesWithCalculatedRelevance, lemmaSetAfterExcluding);
+        Set<SearchData> searchDataSet = prepareSearchData(filteredPages, lemmaSetAfterExcluding);
 
         return prepareSuccessSearchResult(searchDataSet, offset, limit);
     }
 
     private TreeSet<Lemma> excludeHighFrequencyLemmas(Set<String> stringLemmasFromQuery, Site site) {
-        System.err.println("[DEBUG] Site is not selected");
         List<Lemma> savedLemmas = new ArrayList<>();
         for (String stringLemma : stringLemmasFromQuery) {
             if (site == null) {
@@ -71,10 +64,7 @@ public class SearchServiceImpl implements SearchService {
             }
         }
         savedLemmas.removeIf(lemma -> lemma.getFrequency() > 500);
-        System.err.println("[DEBUG] savedLemmas after excluding high frequency lemmas: " + savedLemmas);
-        TreeSet<Lemma> lemmaSetAfterExcluding = new TreeSet<>(savedLemmas);
-        System.err.println("[DEBUG] " + lemmaSetAfterExcluding);
-        return lemmaSetAfterExcluding;
+        return new TreeSet<>(savedLemmas);
     }
 
     private TreeSet<Page> findPagesWithTheRarestLemma(Lemma rarestLemma, Site site) {
@@ -89,42 +79,34 @@ public class SearchServiceImpl implements SearchService {
         return pagesWithTheRarestLemma;
     }
 
-    private TreeSet<Page> filterPagesWithTheRarestLemma(Set<Page> pagesWithTheRarestLemma, Set<Lemma> lemmaSetWithoutTheRarestLemma) {
+    private TreeSet<Page> filterPagesWithTheRarestLemma(Set<Page> pagesWithTheRarestLemma, Set<Lemma> lemmaSetWithoutTheRarestLemma, Lemma rarestLemma) {
         TreeSet<Page> filteredPages = new TreeSet<>(pagesWithTheRarestLemma);
 
         for (Lemma lemma : lemmaSetWithoutTheRarestLemma) {
             TreeSet<Page> pagesToRemove = new TreeSet<>();
             for (Page page : filteredPages) {
+                double relevance = 0;
                 System.err.println("[DEBUG] inside forEach in filterPagesWithTheRarestLemma. filteredPages size: " + filteredPages.size());
                 Optional<Index> indexOptional = indexRepository.findByPageIdAndLemmaId(page.getId(), lemma.getId());
                 if (indexOptional.isEmpty()) {
                     System.out.println("removing page");
                     pagesToRemove.add(page);
-                }
-            }
-            filteredPages.removeAll(pagesToRemove);
-        }
-        return filteredPages;
-    }
-
-    private TreeSet<Page> calculateRelevance(Set<Page> filteredPages, Set<Lemma> lemmaSetAfterExcluding) {
-        TreeSet<Page> pagesWithCalculatedRelevance = new TreeSet<>(filteredPages);
-
-        for (Page page : pagesWithCalculatedRelevance) {
-            double relevance = 0;
-//            Set<Lemma> lemmasFromCurrentPage = indexRepository.findAllLemmasByPageId(page.getId());
-            for (Lemma lemma : lemmaSetAfterExcluding) {
-//                if (lemmasFromCurrentPage.contains(lemma)) relevance++;
-                Optional<Index> indexOptional = indexRepository.findByPageIdAndLemmaId(page.getId(),lemma.getId());
-                if(indexOptional.isPresent()) {
+                } else {
                     Index index = indexOptional.get();
                     relevance += index.getRank();
                 }
+                page.setRelevance(relevance);
             }
-            page.setRelevance(relevance);
-            System.err.println("[DEBUG] Page: " + page.getPath() + " with relevance: " + page.getRelevance());
+            filteredPages.removeAll(pagesToRemove);
         }
-        return pagesWithCalculatedRelevance;
+        for (Page page : filteredPages) {
+            Optional<Index> indexOptional = indexRepository.findByPageIdAndLemmaId(page.getId(), rarestLemma.getId());
+            if (indexOptional.isPresent()) {
+                Index index = indexOptional.get();
+                page.setRelevance(page.getRelevance()+index.getRank());
+            }
+        }
+        return filteredPages;
     }
 
     private TreeSet<SearchData> prepareSearchData(Set<Page> pagesWithCalculatedRelevance, Set<Lemma> lemmaSetAfterExcluding) {
@@ -135,14 +117,12 @@ public class SearchServiceImpl implements SearchService {
             String site = page.getSite().getUrl();
             String siteName = page.getSite().getName();
             String uri = page.getPath().replace(page.getSite().getUrl(),"");
-            System.err.println("[DEBUG] uri: " + uri);
             String title = document.title();
             String snippet = snippetFinder.findSnippet(lemmaSetAfterExcluding, page);
             double relevance = page.getRelevance();
 
             SearchData searchData = new SearchData(site, siteName, uri, title, snippet, relevance);
             searchDataSet.add(searchData);
-            System.err.println("[DEBUG] searchData: " + searchData);
         }
         return searchDataSet;
     }
@@ -153,8 +133,6 @@ public class SearchServiceImpl implements SearchService {
         }
 
         int count = searchDataSet.size();
-        System.err.println("searchDataSet.size(): " + count);
-        System.err.println("searchDataSet: " + searchDataSet);
         TreeSet<SearchData> data = new TreeSet<>(searchDataSet);
 
         int safeLimit = limit;

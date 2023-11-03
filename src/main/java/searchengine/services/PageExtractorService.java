@@ -80,11 +80,6 @@ public class PageExtractorService extends RecursiveAction {
                 tasks.add(extractorService);
                 links.add(link);
             }
-//            else {
-//                if (!isValidPageLink(link)) {
-//                    invalidLinks.add(link);
-//                }
-//            }
         }
     }
 
@@ -124,7 +119,6 @@ public class PageExtractorService extends RecursiveAction {
                 !link.endsWith(".pdf") &&
                 !link.contains("#") &&
                 !link.contains("tel:") &&
-//                link.contains(".html") &&
                 !link.contains("tg:/") &&
                 !isMatch &&
                 !isMatch1 &&

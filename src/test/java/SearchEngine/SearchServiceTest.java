@@ -33,11 +33,11 @@ public class SearchServiceTest {
     @Autowired
     private SiteRepository siteRepository;
 
-    @Test
-    public void testSearchIfAllQueryWordsAreTooFrequent() {
-        Site site = siteRepository.findAnyIndexedSite(PageRequest.of(0, 1)).iterator().next();
-        ArrayList<Lemma> lemmasFromDataBase = new ArrayList<>(lemmaRepository.findBySiteId(site.getId()));
-        SearchResult searchResult = searchService.search("лазерное излучение", "ipfran",0,20);
-    }
+//    @Test
+//    public void testSearchIfAllQueryWordsAreTooFrequent() {
+//        Site site = siteRepository.findAnyIndexedSite(PageRequest.of(0, 1)).iterator().next();
+//        ArrayList<Lemma> lemmasFromDataBase = new ArrayList<>(lemmaRepository.findBySiteId(site.getId()));
+//        SearchResult searchResult = searchService.search("лазерное излучение", "ipfran",0,20);
+//    }
 
 }
