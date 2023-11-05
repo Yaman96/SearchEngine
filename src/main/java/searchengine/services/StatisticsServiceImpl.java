@@ -6,7 +6,6 @@ import searchengine.dto.statistics.DetailedStatisticsItem;
 import searchengine.dto.statistics.StatisticsData;
 import searchengine.dto.statistics.StatisticsResponse;
 import searchengine.dto.statistics.TotalStatistics;
-import searchengine.model.Lemma;
 import searchengine.model.Site;
 import searchengine.model.Status;
 import searchengine.repositories.LemmaRepository;
@@ -70,9 +69,5 @@ public class StatisticsServiceImpl implements StatisticsService {
 
     private boolean isSiteIndexing(List<searchengine.model.Site> siteList) {
         return siteList.stream().anyMatch(site -> site.getStatus().equals(Status.INDEXING.toString()));
-    }
-
-    private ArrayList<Lemma> lemmaList(Site site) {
-        return lemmaRepository.findBySiteId(site.getId());
     }
 }

@@ -8,4 +8,9 @@ import lombok.Data;
 public class SearchErrorResult implements SearchResult {
     private boolean result;
     private String error;
+
+    @Override
+    public boolean getResult() {
+        return result;
+    }
 }

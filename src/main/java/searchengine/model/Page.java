@@ -6,7 +6,7 @@ import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.jetbrains.annotations.NotNull;
 
-import javax.persistence.*;
+import jakarta.persistence.*;
 
 @Entity
 @Data
@@ -28,7 +28,7 @@ public class Page implements Comparable<Page>{
     @Column(columnDefinition = "INT", nullable = false)
     private int code;
 
-    @Column(columnDefinition = "MEDIUMTEXT", nullable = false)
+    @Column(columnDefinition = "LONGTEXT", nullable = false)
     private String content;
 
     @Transient

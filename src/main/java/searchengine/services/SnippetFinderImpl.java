@@ -17,17 +17,29 @@ public class SnippetFinderImpl implements SnippetFinder {
 
     @Override
     public String findSnippet(Set<Lemma> queryLemmas, Page page) {
-        LuceneMorphology luceneMorphology = lemmaFinderService.getLuceneMorphology();
+        LuceneMorphology luceneMorphologyEn = lemmaFinderService.getLuceneMorphologyEn();
+        LuceneMorphology luceneMorphologyRu = lemmaFinderService.getLuceneMorphologyRu();
         Set<String> queryLemmasStrings = queryLemmas.stream().map(Lemma::getLemma).collect(Collectors.toSet());
         String visibleText = LemmaFinderService.extractVisibleText(page.getContent()).trim().replaceAll("\\s{2,}", " ");
-        String[] words = lemmaFinderService.arrayContainsRussianWords(visibleText);
-        ArrayList<String> wordsList = new ArrayList<>(List.of(words));
+        String[] wordsEnRu = lemmaFinderService.arrayContainsEnglishAndRussianWords(visibleText);
+
+        ArrayList<String> wordsList = new ArrayList<>(List.of(wordsEnRu));
 
         for (String word : wordsList) {
-            String normalForm = luceneMorphology.getNormalForms(word.toLowerCase()).get(0);
-            if (queryLemmasStrings.contains(normalForm)) {
-                int index = wordsList.indexOf(word);
-                wordsList.set(index,String.format("<b>%s</b>", word));
+            String normalForm;
+            if (!word.isEmpty() && LemmaFinderService.RU_WORDS_PATTERN.matcher(word).matches()) {
+                normalForm = luceneMorphologyRu.getNormalForms(word.toLowerCase()).get(0);
+                if (queryLemmasStrings.contains(normalForm)) {
+                    int index = wordsList.indexOf(word);
+                    wordsList.set(index,String.format("<b>%s</b>", word));
+                }
+            }
+            else if (!word.isEmpty() && LemmaFinderService.EN_WORDS_PATTERN.matcher(word).matches()) {
+                normalForm = luceneMorphologyEn.getNormalForms(word.toLowerCase()).get(0);
+                if (queryLemmasStrings.contains(normalForm)) {
+                    int index = wordsList.indexOf(word);
+                    wordsList.set(index,String.format("<b>%s</b>", word));
+                }
             }
         }
 

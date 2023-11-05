@@ -1,12 +1,11 @@
 package searchengine.model;
 
+import jakarta.persistence.*;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 import org.jetbrains.annotations.NotNull;
-
-import javax.persistence.*;
 
 @Entity
 @Data

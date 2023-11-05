@@ -86,10 +86,8 @@ public class SearchServiceImpl implements SearchService {
             TreeSet<Page> pagesToRemove = new TreeSet<>();
             for (Page page : filteredPages) {
                 double relevance = 0;
-                System.err.println("[DEBUG] inside forEach in filterPagesWithTheRarestLemma. filteredPages size: " + filteredPages.size());
                 Optional<Index> indexOptional = indexRepository.findByPageIdAndLemmaId(page.getId(), lemma.getId());
                 if (indexOptional.isEmpty()) {
-                    System.out.println("removing page");
                     pagesToRemove.add(page);
                 } else {
                     Index index = indexOptional.get();

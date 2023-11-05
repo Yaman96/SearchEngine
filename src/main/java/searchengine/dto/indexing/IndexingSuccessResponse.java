@@ -7,4 +7,9 @@ import lombok.Data;
 @AllArgsConstructor
 public class IndexingSuccessResponse implements IndexingResponse {
     private boolean result;
+
+    @Override
+    public boolean getResult() {
+        return result;
+    }
 }

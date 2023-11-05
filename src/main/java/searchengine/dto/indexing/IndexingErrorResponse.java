@@ -8,4 +8,9 @@ import lombok.Data;
 public class IndexingErrorResponse implements IndexingResponse {
     private boolean result;
     private String error;
+
+    @Override
+    public boolean getResult() {
+        return result;
+    }
 }

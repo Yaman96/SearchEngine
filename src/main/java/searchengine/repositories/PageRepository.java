@@ -7,7 +7,6 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 import searchengine.model.Page;
-import searchengine.model.Site;
 
 import java.util.ArrayList;
 
@@ -16,7 +15,8 @@ public interface PageRepository extends CrudRepository<Page, Integer> {
 
     @Modifying
     @Transactional
-    void deleteAllBySiteIs(Site site);
+    @Query(value = "DELETE FROM Page p WHERE p.site.id = :siteId")
+    void deleteBySiteId(long siteId);
 
     @Modifying
     @Transactional

@@ -1663,9 +1663,9 @@
                                 $this.next('.API-error').remove();
                             }
                             if ($this.next('.API-success').length) {
-                                $this.next('.API-success').text('Страница добавлена/обновлена успешно');
+                                $this.next('.API-success').text('The page has been successfully added/updated');
                             } else {
-                                $this.after('<div class="API-success">Страница поставлена в очередь на обновление / добавление</div>');
+                                $this.after('<div class="API-success">The page has been queued for updating / adding</div>');
                             }
                         } else {
                             if ($this.next('.API-success').length) {

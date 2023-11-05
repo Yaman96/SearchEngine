@@ -12,4 +12,9 @@ public class SearchSuccessResult implements SearchResult {
     private boolean result;
     private int count;
     private Set<SearchData> data;
+
+    @Override
+    public boolean getResult() {
+        return result;
+    }
 }

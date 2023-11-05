@@ -19,7 +19,6 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ForkJoinPool;
-import java.util.stream.Collectors;
 
 @Service
 public class IndexingServiceImpl implements IndexingService {
@@ -61,7 +60,8 @@ public class IndexingServiceImpl implements IndexingService {
         stopIndexing = false;
         clearAllMapsAndListsAfterPreviousIndexing();
         createdSites = createNewSites(sites);
-        deleteSiteInfo(null, true);
+        createdSites.forEach(site -> deleteSiteInfo(site,false));
+//        deleteSiteInfo(null, true);
         PageExtractorService.pageRepository = pageRepository;
         for (Site site : createdSites) {
             Thread thread = new Thread(() -> {
@@ -71,8 +71,6 @@ public class IndexingServiceImpl implements IndexingService {
                     savePagesEvery200pages(task);
                     FORK_JOIN_POOLS.put(site, forkJoinPool);
                     forkJoinPool.invoke(task);
-                    System.err.println("forkJoinPool.isShutdown(): " + forkJoinPool.isShutdown());
-                    System.err.println("Thread.currentThread().isInterrupted(): " + Thread.currentThread().isInterrupted());
                     if (!forkJoinPool.isShutdown() || !Thread.currentThread().isInterrupted()) {
                         task.savePages();
                         ArrayList<Long> pagesId = pageRepository.getPagesIdBySiteId(site.getId());
@@ -81,10 +79,7 @@ public class IndexingServiceImpl implements IndexingService {
                             createLemmasAndIndexes(batch, site);
                         }
                     } else {
-                        System.out.println("inside search() current thread is interrupted");
                         if (!STOPPED_SITES.contains(site)) {
-                            STOPPED_SITES.forEach(site1 -> System.out.println(site1.getId() + " " + site.getId()));
-                            System.out.println("!STOPPED_SITES.contains(site) -> SITE_ERROR.put(site, true)");
                             SITE_ERROR.put(site, true);
                         }
                     }
@@ -92,7 +87,6 @@ public class IndexingServiceImpl implements IndexingService {
                     e.printStackTrace();
                 } catch (Exception e) {
                     e.printStackTrace();
-                    System.out.println("catch (Exception e)");
                     SITE_ERROR.put(site, true);
                 }
             });
@@ -102,22 +96,7 @@ public class IndexingServiceImpl implements IndexingService {
             thread.start();
             updateIndexingTime(site, thread);
         });
-        awaitThreadFinish();
-        indexingIsRunning = false;
-        PageExtractorService.invalidLinks.removeAll(PageExtractorService.links);
-        PageExtractorService.invalidLinks.forEach(System.out::println);
-        if (!SITE_ERROR.isEmpty() && SITE_ERROR.values().stream().allMatch(error -> error.equals(true))) {
-            return new IndexingErrorResponse(false, "No site has been indexed. An error occurred during the indexing of all sites");
-        }
-        if (!SITE_ERROR.isEmpty() && SITE_ERROR.values().stream().anyMatch(error -> error.equals(true))) {
-            return new IndexingErrorResponse(true, "Not all sites has been indexed. Error occurred while indexing: " + SITE_ERROR.keySet().stream().map(Site::getName).collect(Collectors.toSet()));
-        }
-        if (!STOPPED_SITES.isEmpty() && STOPPED_SITES.size() == createdSites.size()) {
-            return new IndexingErrorResponse(false, "No site has been indexed. Indexing was stopped by user");
-        }
-        if (!STOPPED_SITES.isEmpty() && STOPPED_SITES.size() < createdSites.size()) {
-            return new IndexingErrorResponse(true, "Not all sites has been indexed. This/These site(s) indexing was stopped by user: " + STOPPED_SITES);
-        }
+        new Thread(this::awaitThreadFinish).start();
         return new IndexingSuccessResponse(true);
     }
 
@@ -131,7 +110,12 @@ public class IndexingServiceImpl implements IndexingService {
         PageExtractorService.pageList.clear();
     }
 
+    private boolean isIndexingIsRunning() {
+        return MAIN_THREADS.values().stream().anyMatch(Thread::isAlive);
+    }
+
     public IndexingResponse stopIndexing(Long siteId) {
+        indexingIsRunning = isIndexingIsRunning();
         if (!indexingIsRunning) {
             return new IndexingErrorResponse(false, "Nothing to stop. Indexing is not running.");
         }
@@ -166,7 +150,9 @@ public class IndexingServiceImpl implements IndexingService {
                 STOPPED_SITES.addAll(createdSites);
                 MAIN_THREADS.forEach((site, thread) -> thread.interrupt());
                 FORK_JOIN_POOLS.forEach((site, fjp) -> fjp.shutdownNow());
-                deleteSiteInfo(null, true);
+                for(Site site : createdSites) {
+                    deleteSiteInfo(site, true);
+                }
                 clearAllMapsAndListsAfterPreviousIndexing();
             }
             return new IndexingSuccessResponse(true);
@@ -201,9 +187,6 @@ public class IndexingServiceImpl implements IndexingService {
             Map<String, Integer> lemmaCountMapFromNewPage = lemmaFinderService.collectLemmas(HTML);
             if (page != null) {
                 List<Index> oldPageIndexes = indexRepository.findAllByPageId(page.getId());
-                if (oldPageIndexes.size() == 0) {
-                    System.out.println("The page has not been indexed previously");
-                }
                 for (Index index : oldPageIndexes) {
                     Optional<Lemma> lemmaOptional = lemmaRepository.findById(index.getLemmaId());
                     if (lemmaOptional.isPresent()) {
@@ -222,7 +205,6 @@ public class IndexingServiceImpl implements IndexingService {
                 pageRepository.save(page);
                 long pageId = pageRepository.findByPath(url).getId();
                 List<Index> newIndexes = new ArrayList<>();
-                System.out.println("lemmaCountMapFromNewPage elements count: " + lemmaCountMapFromNewPage.size());
                 lemmaCountMapFromNewPage.forEach((lemmaString, count) -> {
                     Optional<Lemma> lemmaOptional = lemmaRepository.findByLemmaEquals(lemmaString);
                     if (lemmaOptional.isPresent()) {
@@ -252,11 +234,9 @@ public class IndexingServiceImpl implements IndexingService {
             pageRepository.deleteAll();
             return;
         }
-        for (Page page : site.getPages()) {
-            indexRepository.deleteByPageId(page.getId());
-        }
+        indexRepository.deleteBySiteId(site.getId());
         lemmaRepository.deleteAllBySiteId(site.getId());
-        pageRepository.deleteAllBySiteIs(site);
+        pageRepository.deleteBySiteId(site.getId());
     }
 
     /*Creates model.Site objects from simple config.Site objects*/
@@ -294,12 +274,8 @@ public class IndexingServiceImpl implements IndexingService {
                     e.printStackTrace();
                 }
             }
-            if (stopIndexing) {
-                currentSite.setLastError("Indexing is stopped by user because stopIndexing is true");
-                currentSite.setStatus(Status.FAILED.toString());
-                siteRepository.save(currentSite);
-            } else if (STOPPED_SITES.contains(currentSite)) {
-                currentSite.setLastError("Indexing is stopped by user because STOPPED_SITES.contains(currentSite)");
+            if (stopIndexing || STOPPED_SITES.contains(currentSite)) {
+                currentSite.setLastError("Indexing is stopped by user");
                 currentSite.setStatus(Status.FAILED.toString());
                 siteRepository.save(currentSite);
             } else if (SITE_ERROR.getOrDefault(currentSite, false)) {
@@ -327,7 +303,6 @@ public class IndexingServiceImpl implements IndexingService {
 
     private ArrayList<ArrayList<Long>> getPageIdListBatches(List<Long> pagesId) {
         if (Thread.currentThread().isInterrupted()) {
-            System.out.println("inside getPageIdListBatches() Current thread is interrupted");
             return new ArrayList<>();
         }
         ArrayList<ArrayList<Long>> batches = new ArrayList<>();
@@ -343,7 +318,6 @@ public class IndexingServiceImpl implements IndexingService {
 
     private void createLemmasAndIndexes(List<Long> batch, Site site) {
         if (Thread.currentThread().isInterrupted()) {
-            System.out.println("inside createLemmasAndIndexes() Current thread is interrupted");
             return;
         }
         long siteId = site.getId();
@@ -368,12 +342,9 @@ public class IndexingServiceImpl implements IndexingService {
                     lemmasToSave.add(savedLemma);
                 }
                 Index index = new Index(pageId, lemma.getId(), count);
-                System.out.println("Index lemma_id = " + index.getLemmaId() + " count: " + index.getRank());
                 indexList.add(index);
             });
         }
-        System.out.println("lemmas count: " + lemmasToSave.size());
-        lemmasToSave.forEach(lemma -> System.err.println(lemma.getLemma() + " : " + lemma.getFrequency() + " (id : " + lemma.getId() + ") from thread: " + Thread.currentThread().getName()));
         lemmaRepository.saveAll(lemmasToSave);
         String sqlIndexInsertQuery = prepareIndexSqlInsertQuery(prepareIndexValuesForSqlInsertQuery(indexList));
         indexJdbcRepository.executeSql(sqlIndexInsertQuery);
@@ -411,6 +382,7 @@ public class IndexingServiceImpl implements IndexingService {
                 throw new RuntimeException(e);
             }
         }
+        indexingIsRunning = false;
     }
 
     @SuppressWarnings("all")
@@ -434,18 +406,5 @@ public class IndexingServiceImpl implements IndexingService {
             }
         });
         thread.start();
-    }
-
-    public static void main(String[] args) {
-        Set<Lemma> lemmas = new HashSet<>();
-        Lemma lemma = new Lemma(144L, "bla", 1);
-        lemma.setId(100);
-        lemmas.add(lemma);
-        Lemma lemma1 = new Lemma(144L, "bla", 1);
-        if (lemmas.contains(lemma1)) {
-            lemmas.stream().filter(lemma2 -> lemma2.equals(lemma)).forEach(Lemma::incrementFrequency);
-        }
-        System.out.println(lemmas.iterator().next().getFrequency());
-        System.out.println(lemmas.iterator().next().getId());
     }
 }

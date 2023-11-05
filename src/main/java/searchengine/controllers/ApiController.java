@@ -1,5 +1,6 @@
 package searchengine.controllers;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import searchengine.dto.indexing.IndexingResponse;
@@ -32,17 +33,29 @@ public class ApiController {
 
     @GetMapping("/startIndexing")
     public ResponseEntity<IndexingResponse> startIndexing() {
-        return ResponseEntity.ok(indexingService.startIndexing());
+        IndexingResponse response = indexingService.startIndexing();
+        if (response.getResult()) {
+            return ResponseEntity.ok(response);
+        }
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
 
     @GetMapping("/stopIndexing")
     public ResponseEntity<IndexingResponse> stopIndexing(@RequestParam(name = "siteId", required = false) Long siteId) {
-        return ResponseEntity.ok(indexingService.stopIndexing(siteId));
+        IndexingResponse response = indexingService.stopIndexing(siteId);
+        if (response.getResult()) {
+            return ResponseEntity.ok(response);
+        }
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
 
     @PostMapping("/indexPage")
     public ResponseEntity<IndexingResponse> indexPage(@RequestParam String url) {
-        return ResponseEntity.ok(indexingService.indexPage(url));
+        IndexingResponse response = indexingService.indexPage(url);
+        if (response.getResult()) {
+            return ResponseEntity.ok(response);
+        }
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
     }
 
     @GetMapping("/search")
@@ -52,7 +65,9 @@ public class ApiController {
                                                      @RequestParam(value = "limit", defaultValue = "20") int limit)
     {
         SearchResult searchResults = searchService.search(query, site, offset, limit);
-
-        return ResponseEntity.ok(searchResults);
+        if (searchResults.getResult()) {
+            return ResponseEntity.ok(searchResults);
+        }
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(searchResults);
     }
 }

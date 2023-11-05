@@ -1,0 +1,39 @@
+<configuration>
+
+    <appender name="EXCEPTION" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>/logs/exceptions/exceptions.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>/logs/exceptions/exceptions.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="DEBUG" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>/logs/debug/debug.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>/logs/debug/debug.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="debug">
+        <appender-ref ref="EXCEPTION" />
+    </root>
+
+    <logger name="exceptionLogger" level="error" additivity="false">
+        <appender-ref ref="EXCEPTION" />
+    </logger>
+
+    <logger name="debugLogger" level="debug" additivity="false">
+        <appender-ref ref="DEBUG" />
+    </logger>
+
+</configuration>

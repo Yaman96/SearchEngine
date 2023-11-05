@@ -13,7 +13,6 @@ import searchengine.model.Site;
 import searchengine.repositories.PageRepository;
 
 import java.io.IOException;
-import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -34,8 +33,6 @@ public class PageExtractorService extends RecursiveAction {
     private String link;
     private static final String USER_AGENT = "Mozilla/5.0 (Windows; U; WindowsNT 5.1; en-US; rv1.8.1.6) Gecko/20070725 Firefox/2.0.0.6";
     private static final String REFERER = "https://www.google.com";
-
-    public static final CopyOnWriteArraySet<String> invalidLinks = new CopyOnWriteArraySet<>();
 
     @Override
     protected void compute() {
@@ -58,7 +55,7 @@ public class PageExtractorService extends RecursiveAction {
         } catch (InterruptedException | IOException e) {
             Page errorPage = new Page(link,404,"404", site);
             pageList.add(errorPage);
-            System.err.println("An exception occurred: " + e.getClass().getName());
+            System.err.println("An exception occurred: " + e.getClass().getName() + " status: ");
             return;
         }
 
@@ -68,7 +65,10 @@ public class PageExtractorService extends RecursiveAction {
 
         for (Element element : elements) {
             String link;
-            if (site.getUrl().endsWith("/")) {
+            if (element.attr("href").contains("https://")) {
+                link = element.attr("href");
+            }
+            else if (site.getUrl().endsWith("/")) {
                 link = site.getUrl() + element.attr("href").replaceFirst("/", "");
             } else {
                 link = site.getUrl() + element.attr("href");
@@ -100,6 +100,7 @@ public class PageExtractorService extends RecursiveAction {
         return document.html();
     }
 
+    @SuppressWarnings("all")
     public boolean isValidPageLink(String link) {
         boolean isMatch = Pattern.compile("\\S+@\\S+\\.\\S+")
                 .matcher(link)
@@ -116,6 +117,9 @@ public class PageExtractorService extends RecursiveAction {
                 link.startsWith(site.getUrl()) &&
                 !link.endsWith(".jpg") &&
                 !link.endsWith(".png") &&
+                !link.endsWith(".doc") &&
+                !link.endsWith(".docx") &&
+                !link.endsWith(".xls") &&
                 !link.endsWith(".pdf") &&
                 !link.contains("#") &&
                 !link.contains("tel:") &&
@@ -140,20 +144,5 @@ public class PageExtractorService extends RecursiveAction {
     public PageExtractorService(String pagePath, Site site) {
         this.link = pagePath;
         this.site = site;
-    }
-
-    public static void main(String[] args) {
-        PageExtractorService pageExtractorService = new PageExtractorService();
-        pageExtractorService.site = new Site();
-        pageExtractorService.site.setUrl("https://playback.ru/");
-
-        ArrayList<String> links = new ArrayList<>();
-        links.add("https://playback.ru/product_info/1124457.html");
-        links.add("https://playback.ru/product/1124428.html");
-        links.add("https://playback.ru/product/1123748.html");
-
-        for (String link : links) {
-            System.out.println("is link: " + link + " is valid: " + pageExtractorService.isValidPageLink(link));
-        }
     }
 }
