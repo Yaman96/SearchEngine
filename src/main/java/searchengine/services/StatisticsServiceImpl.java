@@ -49,7 +49,7 @@ public class StatisticsServiceImpl implements StatisticsService {
             item.setPages(pages);
             item.setLemmas(lemmas);
             item.setStatus(site.getStatus());
-            if (!site.getLastError().isEmpty()) {
+            if (site.getLastError() != null && !site.getLastError().isEmpty()) {
                 item.setError(site.getLastError());
             }
             item.setStatusTime(site.getStatusTime().toInstant(ZoneOffset.UTC).toEpochMilli());
