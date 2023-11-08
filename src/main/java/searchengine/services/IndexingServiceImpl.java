@@ -23,7 +23,7 @@ import java.util.concurrent.ForkJoinPool;
 @Service
 public class IndexingServiceImpl implements IndexingService {
 
-    private final List<searchengine.config.Site> sites;
+    public final static List<searchengine.config.Site> sites = new ArrayList<>();
     private List<Site> createdSites;
     private final SiteRepository siteRepository;
     private final PageRepository pageRepository;
@@ -44,7 +44,7 @@ public class IndexingServiceImpl implements IndexingService {
     public IndexingServiceImpl(SiteRepository siteRepository, SitesList sitesFromConfig, PageRepository pageRepository, LemmaFinderService lemmaFinderService, LemmaRepository lemmaRepository, IndexRepository indexRepository, IndexJdbcRepositoryImpl indexJdbcRepository) {
         this.siteRepository = siteRepository;
         this.pageRepository = pageRepository;
-        this.sites = sitesFromConfig.getSites();
+//        this.sites = sitesFromConfig.getSites();
         this.lemmaFinderService = lemmaFinderService;
         this.lemmaRepository = lemmaRepository;
         this.indexRepository = indexRepository;
