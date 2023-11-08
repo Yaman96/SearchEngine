@@ -3,7 +3,6 @@ package searchengine.services;
 import org.jsoup.Connection;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import searchengine.config.SitesList;
 import searchengine.dto.indexing.IndexingErrorResponse;
 import searchengine.dto.indexing.IndexingResponse;
 import searchengine.dto.indexing.IndexingSuccessResponse;
@@ -41,10 +40,9 @@ public class IndexingServiceImpl implements IndexingService {
 
 
     @Autowired
-    public IndexingServiceImpl(SiteRepository siteRepository, SitesList sitesFromConfig, PageRepository pageRepository, LemmaFinderService lemmaFinderService, LemmaRepository lemmaRepository, IndexRepository indexRepository, IndexJdbcRepositoryImpl indexJdbcRepository) {
+    public IndexingServiceImpl(SiteRepository siteRepository, PageRepository pageRepository, LemmaFinderService lemmaFinderService, LemmaRepository lemmaRepository, IndexRepository indexRepository, IndexJdbcRepositoryImpl indexJdbcRepository) {
         this.siteRepository = siteRepository;
         this.pageRepository = pageRepository;
-//        this.sites = sitesFromConfig.getSites();
         this.lemmaFinderService = lemmaFinderService;
         this.lemmaRepository = lemmaRepository;
         this.indexRepository = indexRepository;
@@ -59,7 +57,7 @@ public class IndexingServiceImpl implements IndexingService {
         indexingIsRunning = true;
         stopIndexing = false;
         clearAllMapsAndListsAfterPreviousIndexing();
-        createdSites = createNewSites(sites);
+        createdSites = createNewSites();
         createdSites.forEach(site -> deleteSiteInfo(site,false));
 //        deleteSiteInfo(null, true);
         PageExtractorService.pageRepository = pageRepository;
@@ -240,9 +238,9 @@ public class IndexingServiceImpl implements IndexingService {
     }
 
     /*Creates model.Site objects from simple config.Site objects*/
-    private List<Site> createNewSites(List<searchengine.config.Site> sitesFromConfigToCreate) {
+    private List<Site> createNewSites() {
         List<Site> createdSites = new ArrayList<>();
-        for (searchengine.config.Site site : sitesFromConfigToCreate) {
+        for (searchengine.config.Site site : IndexingServiceImpl.sites) {
             Site newSite = siteRepository.findByNameContainsIgnoreCase(site.getName());
             if (newSite == null) {
                 newSite = new Site();
