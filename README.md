@@ -42,15 +42,15 @@
 1.  Создайте схему "search_engine" в вашей базе данных MySQL. Вы можете использовать MySQL Workbench для этого.
     Вот как создать новую схему:
 - Откройте MySQL Workbench
-  ![MySQL Workbench](https://drive.google.com/file/d/1A1Ha9cl6aKYj1WSvZhZr22svg5Kz-ijJ/view?usp=sharing)
+  ![MySQL Workbench](https://github.com/Yaman96/SearchEngine/blob/2b71cca9d8caca7b77f53905ec216fe6119c6f65/screenShots/Workbench.png)
 - В разделе Schemas нажать правую кнопку мыши на пустом месте и выбрать Create schema...
-  ![Create schema1](https://drive.google.com/file/d/1P897CUhzzepGV8RTR9kpHQC3ld7tWRg4/view?usp=sharing)
-- Далее пишем название схемы search_engine Charset выбыраем utf8mb4 а Collation utf8mb4_unicode_ci
-  ![Create schema2](https://drive.google.com/file/d/15m-giGkmzJTj_hAk8VDR6uZrMl_TkIbC/view?usp=sharing)
+  ![Create schema1](https://github.com/Yaman96/SearchEngine/blob/2b71cca9d8caca7b77f53905ec216fe6119c6f65/screenShots/Create.png)
+- Далее пишем название схемы search_engine Charset выбираем utf8mb4 а Collation utf8mb4_unicode_ci
+  ![Create schema2](https://github.com/Yaman96/SearchEngine/blob/2b71cca9d8caca7b77f53905ec216fe6119c6f65/screenShots/options.png)
 - Затем подтверждаем создание схемы
-  ![Apply](https://drive.google.com/file/d/1_nkf5ghJKr-avpCi5iwiiMDE7KtBZQrF/view?usp=sharing)
+  ![Apply](https://github.com/Yaman96/SearchEngine/blob/2b71cca9d8caca7b77f53905ec216fe6119c6f65/screenShots/apply.png)
 - После этого схема должна появиться в списке
-  ![Check](https://drive.google.com/file/d/1fbVvBtxJ-LgpamCRA-u3wgr0s2OEhB3R/view?usp=drive_link)
+  ![Check](https://github.com/Yaman96/SearchEngine/blob/2b71cca9d8caca7b77f53905ec216fe6119c6f65/screenShots/check.png)
 2. Скачайте файл `searchengine.jar` из корня проекта на GitHub.
 
 3. Откройте папку, в которой находится скачанный файл, и запустите консоль.
