@@ -1,4 +1,4 @@
-package searchengine.services;
+package searchengine.services.impl;
 
 import lombok.RequiredArgsConstructor;
 import org.jsoup.Jsoup;
@@ -15,6 +15,8 @@ import searchengine.model.Site;
 import searchengine.repositories.IndexRepository;
 import searchengine.repositories.LemmaRepository;
 import searchengine.repositories.SiteRepository;
+import searchengine.services.LemmaFinderService;
+import searchengine.services.SearchService;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -23,7 +25,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class SearchServiceImpl implements SearchService {
 
-    private final LemmaFinderService lemmaFinderService;
+    private final LemmaFinderService lemmaFinderServiceImpl;
     private final SiteRepository siteRepository;
     private final LemmaRepository lemmaRepository;
     private final IndexRepository indexRepository;
@@ -34,7 +36,7 @@ public class SearchServiceImpl implements SearchService {
         if (query.isEmpty()) {
             return new SearchErrorResult(false, "search query is empty");
         }
-        Set<String> stringLemmasFromQuery = lemmaFinderService.getLemmaSet(query);
+        Set<String> stringLemmasFromQuery = lemmaFinderServiceImpl.getLemmaSet(query);
         Site selectedSite = siteRepository.findByUrlStartingWith(site);
         Set<Lemma> lemmaSetAfterExcluding = excludeHighFrequencyLemmas(stringLemmasFromQuery, selectedSite);
         if (lemmaSetAfterExcluding.isEmpty()) {

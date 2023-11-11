@@ -4,7 +4,7 @@ import org.hibernate.procedure.NoSuchParameterException;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import searchengine.config.Site;
-import searchengine.services.IndexingServiceImpl;
+import searchengine.services.impl.IndexingServiceImpl;
 
 import java.net.MalformedURLException;
 import java.net.URL;

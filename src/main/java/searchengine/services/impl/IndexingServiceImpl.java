@@ -1,4 +1,4 @@
-package searchengine.services;
+package searchengine.services.impl;
 
 import org.jsoup.Connection;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -8,6 +8,10 @@ import searchengine.dto.indexing.IndexingResponse;
 import searchengine.dto.indexing.IndexingSuccessResponse;
 import searchengine.model.*;
 import searchengine.repositories.*;
+import searchengine.repositories.impl.IndexJdbcRepositoryImpl;
+import searchengine.services.IndexingService;
+import searchengine.services.LemmaFinderService;
+import searchengine.services.PageExtractorService;
 
 import java.io.IOException;
 import java.net.URI;
@@ -29,7 +33,7 @@ public class IndexingServiceImpl implements IndexingService {
     private final LemmaRepository lemmaRepository;
     private final IndexRepository indexRepository;
     private final IndexJdbcRepositoryImpl indexJdbcRepository;
-    private final LemmaFinderService lemmaFinderService;
+    private final LemmaFinderService lemmaFinderServiceImpl;
     private final ConcurrentHashMap<Site, Thread> MAIN_THREADS = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Site, ForkJoinPool> FORK_JOIN_POOLS = new ConcurrentHashMap<>();
     private final Set<Site> STOPPED_SITES = new CopyOnWriteArraySet<>();
@@ -40,10 +44,10 @@ public class IndexingServiceImpl implements IndexingService {
 
 
     @Autowired
-    public IndexingServiceImpl(SiteRepository siteRepository, PageRepository pageRepository, LemmaFinderService lemmaFinderService, LemmaRepository lemmaRepository, IndexRepository indexRepository, IndexJdbcRepositoryImpl indexJdbcRepository) {
+    public IndexingServiceImpl(SiteRepository siteRepository, PageRepository pageRepository, LemmaFinderService lemmaFinderServiceImpl, LemmaRepository lemmaRepository, IndexRepository indexRepository, IndexJdbcRepositoryImpl indexJdbcRepository) {
         this.siteRepository = siteRepository;
         this.pageRepository = pageRepository;
-        this.lemmaFinderService = lemmaFinderService;
+        this.lemmaFinderServiceImpl = lemmaFinderServiceImpl;
         this.lemmaRepository = lemmaRepository;
         this.indexRepository = indexRepository;
         this.indexJdbcRepository = indexJdbcRepository;
@@ -58,29 +62,12 @@ public class IndexingServiceImpl implements IndexingService {
         stopIndexing = false;
         clearAllMapsAndListsAfterPreviousIndexing();
         createdSites = createNewSites();
-        createdSites.forEach(site -> deleteSiteInfo(site,false));
-//        deleteSiteInfo(null, true);
-        PageExtractorService.pageRepository = pageRepository;
+        createdSites.forEach(site -> deleteSiteInfo(site, false));
+        PageExtractorServiceImpl.pageRepository = pageRepository;
         for (Site site : createdSites) {
             Thread thread = new Thread(() -> {
                 try {
-                    ForkJoinPool forkJoinPool = new ForkJoinPool(12);
-                    PageExtractorService task = new PageExtractorService(site.getUrl(), site);
-                    savePagesEvery200pages(task);
-                    FORK_JOIN_POOLS.put(site, forkJoinPool);
-                    forkJoinPool.invoke(task);
-                    if (!forkJoinPool.isShutdown() || !Thread.currentThread().isInterrupted()) {
-                        task.savePages();
-                        ArrayList<Long> pagesId = pageRepository.getPagesIdBySiteId(site.getId());
-                        ArrayList<ArrayList<Long>> pageIdListBatches = getPageIdListBatches(pagesId);
-                        for (ArrayList<Long> batch : pageIdListBatches) {
-                            createLemmasAndIndexes(batch, site);
-                        }
-                    } else {
-                        if (!STOPPED_SITES.contains(site)) {
-                            SITE_ERROR.put(site, true);
-                        }
-                    }
+                    parseAndIndexSite(site);
                 } catch (CancellationException e) {
                     e.printStackTrace();
                 } catch (Exception e) {
@@ -98,20 +85,6 @@ public class IndexingServiceImpl implements IndexingService {
         return new IndexingSuccessResponse(true);
     }
 
-    private void clearAllMapsAndListsAfterPreviousIndexing() {
-        MAIN_THREADS.clear();
-        FORK_JOIN_POOLS.clear();
-        STOPPED_SITES.clear();
-        SITE_ERROR.clear();
-        lemmasToSave.clear();
-        PageExtractorService.links.clear();
-        PageExtractorService.pageList.clear();
-    }
-
-    private boolean isIndexingIsRunning() {
-        return MAIN_THREADS.values().stream().anyMatch(Thread::isAlive);
-    }
-
     public IndexingResponse stopIndexing(Long siteId) {
         indexingIsRunning = isIndexingIsRunning();
         if (!indexingIsRunning) {
@@ -119,41 +92,10 @@ public class IndexingServiceImpl implements IndexingService {
         }
         try {
             if (siteId != null) {
-                Optional<Site> siteOptional = createdSites.stream().filter(s -> s.getId() == siteId).findFirst();
-                Site site;
-                if (siteOptional.isPresent()) {
-                    site = siteOptional.get();
-                    STOPPED_SITES.add(site);
-                } else {
-                    return new IndexingErrorResponse(false, "There is no such site. Incorrect siteId");
-                }
-                if (createdSites.size() - STOPPED_SITES.size() >= 1) {
-                    stopIndexing = false;
-                    indexingIsRunning = true;
-                } else {
-                    stopIndexing = true;
-                    indexingIsRunning = false;
-                }
-                MAIN_THREADS.get(site).interrupt();
-                FORK_JOIN_POOLS.get(site).shutdownNow();
-                if (createdSites.size() == STOPPED_SITES.size()) {
-                    deleteSiteInfo(null, true);
-                    clearAllMapsAndListsAfterPreviousIndexing();
-                } else {
-                    deleteSiteInfo(site, false);
-                }
+                return stopIndexingWhenSiteIsProvided(siteId);
             } else {
-                stopIndexing = true;
-                indexingIsRunning = false;
-                STOPPED_SITES.addAll(createdSites);
-                MAIN_THREADS.forEach((site, thread) -> thread.interrupt());
-                FORK_JOIN_POOLS.forEach((site, fjp) -> fjp.shutdownNow());
-                for(Site site : createdSites) {
-                    deleteSiteInfo(site, true);
-                }
-                clearAllMapsAndListsAfterPreviousIndexing();
+                return stopIndexingWhenSiteIsNotProvided();
             }
-            return new IndexingSuccessResponse(true);
         } catch (Exception e) {
             stopIndexing = false;
             indexingIsRunning = true;
@@ -168,60 +110,141 @@ public class IndexingServiceImpl implements IndexingService {
         if (sites.stream().noneMatch(site -> site.getUrl().startsWith(Objects.requireNonNull(getBaseUrl(url))))) {
             return new IndexingErrorResponse(false, "This page is outside the sites specified in the configuration file");
         }
+
+        Connection.Response response;
         String HTML = null;
-        int code = 418;
         try {
-            Connection.Response response = PageExtractorService.getResponse(url);
-            code = response.statusCode();
+            response = PageExtractorService.getResponse(url);
             HTML = PageExtractorService.getHTML(response);
         } catch (InterruptedException | IOException e) {
             e.printStackTrace();
+            return new IndexingErrorResponse(false, "Connection failed");
         }
 
+        int code = response.statusCode();
         Page page = pageRepository.findByPath(url);
-        Site site;
 
-        if (HTML != null && !HTML.isEmpty() && !HTML.isBlank()) {
-            Map<String, Integer> lemmaCountMapFromNewPage = lemmaFinderService.collectLemmas(HTML);
-            if (page != null) {
-                List<Index> oldPageIndexes = indexRepository.findAllByPageId(page.getId());
-                for (Index index : oldPageIndexes) {
-                    Optional<Lemma> lemmaOptional = lemmaRepository.findById(index.getLemmaId());
-                    if (lemmaOptional.isPresent()) {
-                        Lemma lemmaFromDB = lemmaOptional.get();
-                        String lemmaString = lemmaFromDB.getLemma();
-
-                        if (lemmaCountMapFromNewPage.containsKey(lemmaString)) {
-                            int count = lemmaCountMapFromNewPage.get(lemmaString);
-                            index.setRank(count);
-                        }
-                    }
-                }
-            } else {
-                site = siteRepository.findByUrlStartingWith(getBaseUrl(url));
-                page = new Page(url, code, HTML, site);
-                pageRepository.save(page);
-                long pageId = pageRepository.findByPath(url).getId();
-                List<Index> newIndexes = new ArrayList<>();
-                lemmaCountMapFromNewPage.forEach((lemmaString, count) -> {
-                    Optional<Lemma> lemmaOptional = lemmaRepository.findByLemmaEquals(lemmaString);
-                    if (lemmaOptional.isPresent()) {
-                        Lemma lemmaFromDB = lemmaOptional.get();
-                        lemmaFromDB.setFrequency(lemmaFromDB.getFrequency() + 1);
-                        lemmaRepository.save(lemmaFromDB);
-                        newIndexes.add(new Index(pageId, lemmaFromDB.getId(), count));
-                    } else {
-                        Lemma newLemma = new Lemma(site.getId(), lemmaString, 1);
-                        lemmaRepository.save(newLemma);
-                        newLemma = lemmaRepository.findByLemmaEquals(lemmaString).get();
-                        Index newIndex = new Index(pageId, newLemma.getId(), count);
-                        indexRepository.save(newIndex);
-                    }
-                });
-                indexRepository.saveAll(newIndexes);
-            }
+        Map<String, Integer> lemmaCountMapFromNewPage = lemmaFinderServiceImpl.collectLemmas(HTML);
+        if (page != null) {
+            List<Index> oldPageIndexes = indexRepository.findAllByPageId(page.getId());
+            updateIndexesAndLemmasWhenPageIsPresent(lemmaCountMapFromNewPage, oldPageIndexes);
+        } else {
+            Site site = siteRepository.findByUrlStartingWith(getBaseUrl(url));
+            page = new Page(url, code, HTML, site);
+            pageRepository.save(page);
+            long pageId = pageRepository.findByPath(url).getId();
+            List<Index> newIndexes = new ArrayList<>();
+            lemmaCountMapFromNewPage.forEach((lemmaString, count) -> {
+                updateIndexesAndLemmasWhenPageIsNotPresent(lemmaString, count, newIndexes, pageId, site);
+            });
+            indexRepository.saveAll(newIndexes);
         }
         return new IndexingSuccessResponse(true);
+    }
+
+    private IndexingResponse stopIndexingWhenSiteIsProvided(Long siteId) {
+        Optional<Site> siteOptional = createdSites.stream().filter(s -> s.getId() == siteId).findFirst();
+        Site site;
+        if (siteOptional.isPresent()) {
+            site = siteOptional.get();
+            STOPPED_SITES.add(site);
+        } else {
+            return new IndexingErrorResponse(false, "There is no such site. Incorrect siteId");
+        }
+        if (createdSites.size() - STOPPED_SITES.size() >= 1) {
+            stopIndexing = false;
+            indexingIsRunning = true;
+        } else {
+            stopIndexing = true;
+            indexingIsRunning = false;
+        }
+        MAIN_THREADS.get(site).interrupt();
+        FORK_JOIN_POOLS.get(site).shutdownNow();
+        if (createdSites.size() == STOPPED_SITES.size()) {
+            deleteSiteInfo(null, true);
+            clearAllMapsAndListsAfterPreviousIndexing();
+        } else {
+            deleteSiteInfo(site, false);
+        }
+        return new IndexingSuccessResponse(true);
+    }
+
+    private IndexingResponse stopIndexingWhenSiteIsNotProvided() {
+        stopIndexing = true;
+        indexingIsRunning = false;
+        STOPPED_SITES.addAll(createdSites);
+        MAIN_THREADS.forEach((site, thread) -> thread.interrupt());
+        FORK_JOIN_POOLS.forEach((site, fjp) -> fjp.shutdownNow());
+        for (Site site : createdSites) {
+            deleteSiteInfo(site, true);
+        }
+        clearAllMapsAndListsAfterPreviousIndexing();
+        return new IndexingSuccessResponse(true);
+    }
+    private void parseAndIndexSite(Site site) throws CancellationException {
+        ForkJoinPool forkJoinPool = new ForkJoinPool(12);
+        PageExtractorServiceImpl task = new PageExtractorServiceImpl(site.getUrl(), site);
+        savePagesEvery200pages(task);
+        FORK_JOIN_POOLS.put(site, forkJoinPool);
+        forkJoinPool.invoke(task);
+        if (!forkJoinPool.isShutdown() || !Thread.currentThread().isInterrupted()) {
+            task.savePages();
+            ArrayList<Long> pagesId = pageRepository.getPagesIdBySiteId(site.getId());
+            ArrayList<ArrayList<Long>> pageIdListBatches = getPageIdListBatches(pagesId);
+            for (ArrayList<Long> batch : pageIdListBatches) {
+                createLemmasAndIndexes(batch, site);
+            }
+        } else {
+            if (!STOPPED_SITES.contains(site)) {
+                SITE_ERROR.put(site, true);
+            }
+        }
+    }
+
+    private void clearAllMapsAndListsAfterPreviousIndexing() {
+        MAIN_THREADS.clear();
+        FORK_JOIN_POOLS.clear();
+        STOPPED_SITES.clear();
+        SITE_ERROR.clear();
+        lemmasToSave.clear();
+        PageExtractorServiceImpl.links.clear();
+        PageExtractorServiceImpl.pageList.clear();
+    }
+
+    private boolean isIndexingIsRunning() {
+        return MAIN_THREADS.values().stream().anyMatch(Thread::isAlive);
+    }
+
+    private void updateIndexesAndLemmasWhenPageIsPresent(Map<String, Integer> lemmaCountMapFromNewPage, List<Index> oldPageIndexes) {
+        for (Index index : oldPageIndexes) {
+            Optional<Lemma> lemmaOptional = lemmaRepository.findById(index.getLemmaId());
+            if (lemmaOptional.isPresent()) {
+                Lemma lemmaFromDB = lemmaOptional.get();
+                String lemmaString = lemmaFromDB.getLemma();
+
+                if (lemmaCountMapFromNewPage.containsKey(lemmaString)) {
+                    int count = lemmaCountMapFromNewPage.get(lemmaString);
+                    index.setRank(count);
+                }
+            }
+        }
+    }
+
+    @SuppressWarnings("all")
+    private void updateIndexesAndLemmasWhenPageIsNotPresent(String lemmaString, Integer count, List<Index> newIndexes, Long pageId, Site site) {
+        Optional<Lemma> lemmaOptional = lemmaRepository.findByLemmaEquals(lemmaString);
+        if (lemmaOptional.isPresent()) {
+            Lemma lemmaFromDB = lemmaOptional.get();
+            lemmaFromDB.setFrequency(lemmaFromDB.getFrequency() + 1);
+            lemmaRepository.save(lemmaFromDB);
+            newIndexes.add(new Index(pageId, lemmaFromDB.getId(), count));
+        } else {
+            Lemma newLemma = new Lemma(site.getId(), lemmaString, 1);
+            lemmaRepository.save(newLemma);
+            newLemma = lemmaRepository.findByLemmaEquals(lemmaString).get();
+            Index newIndex = new Index(pageId, newLemma.getId(), count);
+            indexRepository.save(newIndex);
+        }
     }
 
     /*Deletes site from DB*/
@@ -287,7 +310,8 @@ public class IndexingServiceImpl implements IndexingService {
         });
         updateThread.start();
     }
-    public static String getBaseUrl(String url) {
+
+    private String getBaseUrl(String url) {
         try {
             URI uri = new URI(url);
             String scheme = uri.getScheme();
@@ -325,7 +349,7 @@ public class IndexingServiceImpl implements IndexingService {
 
         for (Page page : savedPages) {
             long pageId = page.getId();
-            Map<String, Integer> lemma_Count = lemmaFinderService.collectLemmas(page.getContent());
+            Map<String, Integer> lemma_Count = lemmaFinderServiceImpl.collectLemmas(page.getContent());
 
             lemma_Count.forEach((lemmaString, count) -> {
                 Lemma lemma = new Lemma(siteId, lemmaString, 1);
@@ -384,16 +408,16 @@ public class IndexingServiceImpl implements IndexingService {
     }
 
     @SuppressWarnings("all")
-    private void savePagesEvery200pages(PageExtractorService task) {
+    private void savePagesEvery200pages(PageExtractorServiceImpl task) {
         Thread currentThread = Thread.currentThread();
         Thread thread = new Thread(() -> {
             while (!currentThread.isInterrupted()) {
                 if (!currentThread.isAlive()) {
                     break;
                 }
-                System.out.println("Page list size: " + PageExtractorService.pageList.size() + " from thread: " + Thread.currentThread().getName());
-                System.out.println("Link list size: " + PageExtractorService.links.size() + " from thread: " + Thread.currentThread().getName());
-                if (PageExtractorService.pageList.size() >= 200) {
+                System.out.println("Page list size: " + PageExtractorServiceImpl.pageList.size() + " from thread: " + Thread.currentThread().getName());
+                System.out.println("Link list size: " + PageExtractorServiceImpl.links.size() + " from thread: " + Thread.currentThread().getName());
+                if (PageExtractorServiceImpl.pageList.size() >= 200) {
                     task.savePages();
                 }
                 try {
