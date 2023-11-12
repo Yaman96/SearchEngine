@@ -8,7 +8,6 @@ import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
 import searchengine.model.Page;
 import searchengine.model.Site;
-import searchengine.repositories.PageRepository;
 import searchengine.services.PageExtractorService;
 
 import java.io.IOException;
@@ -30,7 +29,7 @@ public class PageExtractorServiceImpl extends RecursiveAction implements PageExt
     public static final CopyOnWriteArraySet<String> links = new CopyOnWriteArraySet<>();
     public static final CopyOnWriteArraySet<Page> pageList = new CopyOnWriteArraySet<>();
     private Site site;
-    public static PageRepository pageRepository;
+    public static PageService pageService;
     private String link;
 
     public PageExtractorServiceImpl(String pagePath, Site site) {
@@ -126,7 +125,7 @@ public class PageExtractorServiceImpl extends RecursiveAction implements PageExt
         }
         synchronized (pageList) {
             List<Page> pagesToSave = new ArrayList<>(pageList);
-            pageRepository.saveAll(pagesToSave);
+            pageService.saveAll(pagesToSave);
             pageList.removeAll(pagesToSave);
         }
     }

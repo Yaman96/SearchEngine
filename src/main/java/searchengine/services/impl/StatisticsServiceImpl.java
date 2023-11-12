@@ -8,9 +8,6 @@ import searchengine.dto.statistics.StatisticsResponse;
 import searchengine.dto.statistics.TotalStatistics;
 import searchengine.model.Site;
 import searchengine.model.Status;
-import searchengine.repositories.LemmaRepository;
-import searchengine.repositories.PageRepository;
-import searchengine.repositories.SiteRepository;
 import searchengine.services.StatisticsService;
 
 import java.time.ZoneOffset;
@@ -21,14 +18,14 @@ import java.util.List;
 @RequiredArgsConstructor
 public class StatisticsServiceImpl implements StatisticsService {
 
-    private final SiteRepository siteRepository;
-    private final LemmaRepository lemmaRepository;
-    private final PageRepository pageRepository;
+    private final SiteService siteService;
+    private final LemmaService lemmaService;
+    private final PageService pageService;
 
     @Override
     public StatisticsResponse getStatistics() {
 
-        Iterable<searchengine.model.Site> siteIterable = siteRepository.findAll();
+        Iterable<searchengine.model.Site> siteIterable = siteService.findAll();
         int siteCount = 0;
         List<searchengine.model.Site> siteList = new ArrayList<>();
         for (searchengine.model.Site site : siteIterable) {
@@ -45,8 +42,8 @@ public class StatisticsServiceImpl implements StatisticsService {
             DetailedStatisticsItem item = new DetailedStatisticsItem();
             item.setName(site.getName());
             item.setUrl(site.getUrl());
-            int pages = pageRepository.countAllBySiteId(site.getId());
-            int lemmas = lemmaRepository.countAllBySiteId(site.getId());
+            int pages = pageService.countAllBySiteId(site.getId());
+            int lemmas = lemmaService.countAllBySiteId(site.getId());
             item.setPages(pages);
             item.setLemmas(lemmas);
             item.setStatus(site.getStatus());

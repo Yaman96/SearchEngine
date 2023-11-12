@@ -43,31 +43,14 @@ public class LemmaFinderServiceImpl implements LemmaFinderService {
         HashMap<String, Integer> lemmas = new HashMap<>();
 
         for (String word : words) {
-            if (word.isBlank()) {
-                continue;
-            }
-            List<String> wordBaseForms;
-            List<String> normalForms = null;
+            if (word.isEmpty() || word.isBlank()) continue;
 
-            if (RU_WORDS_PATTERN.matcher(word).matches()) {
-                wordBaseForms = luceneMorphologyRu.getMorphInfo(word);
-                if (anyWordBaseBelongToParticle(wordBaseForms)) {
-                    continue;
-                }
+            List<String> wordBaseForms = new ArrayList<>();
+            List<String> normalForms = new ArrayList<>();
 
-                normalForms = luceneMorphologyRu.getNormalForms(word);
-            }
-            else if (EN_WORDS_PATTERN.matcher(word).matches()) {
-                wordBaseForms = luceneMorphologyEn.getMorphInfo(word);
-                if (anyWordBaseBelongToParticle(wordBaseForms)) {
-                    continue;
-                }
+            getEnOrRuNormalForms(word, wordBaseForms, normalForms);
 
-                normalForms = luceneMorphologyEn.getNormalForms(word);
-            }
-            if (normalForms == null || normalForms.isEmpty()) {
-                continue;
-            }
+            if (normalForms.isEmpty()) continue;
 
             String normalWord = normalForms.get(0);
 
@@ -90,25 +73,52 @@ public class LemmaFinderServiceImpl implements LemmaFinderService {
         String[] textArray = arrayContainsEnglishAndRussianWords(text);
         Set<String> lemmaSet = new HashSet<>();
         for (String word : textArray) {
-            if(!word.isEmpty() && RU_WORDS_PATTERN.matcher(word).matches()) {
-                if (isCorrectWordFormRu(word)) {
-                    List<String> wordBaseForms = luceneMorphologyRu.getMorphInfo(word);
-                    if (anyWordBaseBelongToParticle(wordBaseForms)) {
-                        continue;
-                    }
-                    lemmaSet.addAll(luceneMorphologyRu.getNormalForms(word));
-                }
-            } else if (!word.isEmpty() && EN_WORDS_PATTERN.matcher(word).matches()) {
-                if (isCorrectWordFormEn(word)) {
-                    List<String> wordBaseForms = luceneMorphologyEn.getMorphInfo(word);
-                    if (anyWordBaseBelongToParticle(wordBaseForms)) {
-                        continue;
-                    }
-                    lemmaSet.addAll(luceneMorphologyEn.getNormalForms(word));
-                }
+            if (word.isEmpty() || word.isBlank()) continue;
+
+            if (RU_WORDS_PATTERN.matcher(word).matches()) {
+                checkRuLemmaAndAddItToSet(word, lemmaSet);
+            } else if (EN_WORDS_PATTERN.matcher(word).matches()) {
+                checkEnLemmaAndAddItToSet(word, lemmaSet);
             }
         }
         return lemmaSet;
+    }
+
+    private void checkRuLemmaAndAddItToSet(String word, Set<String> lemmaSet) {
+        if (!isCorrectWordFormRu(word)) return;
+
+        List<String> wordBaseForms = luceneMorphologyRu.getMorphInfo(word);
+
+        if (anyWordBaseBelongToParticle(wordBaseForms)) return;
+
+        lemmaSet.addAll(luceneMorphologyRu.getNormalForms(word));
+    }
+
+    private void checkEnLemmaAndAddItToSet(String word, Set<String> lemmaSet) {
+        if (!isCorrectWordFormEn(word)) return;
+
+        List<String> wordBaseForms = luceneMorphologyEn.getMorphInfo(word);
+
+        if (anyWordBaseBelongToParticle(wordBaseForms)) return;
+
+        lemmaSet.addAll(luceneMorphologyEn.getNormalForms(word));
+    }
+
+    private void getEnOrRuNormalForms(String word, List<String> wordBaseForms, List<String> normalForms) {
+        if (RU_WORDS_PATTERN.matcher(word).matches()) {
+            wordBaseForms.addAll(luceneMorphologyRu.getMorphInfo(word));
+
+            if (anyWordBaseBelongToParticle(wordBaseForms)) return;
+
+            normalForms.addAll(luceneMorphologyRu.getNormalForms(word));
+        } else if (EN_WORDS_PATTERN.matcher(word).matches()) {
+            wordBaseForms.addAll(luceneMorphologyEn.getMorphInfo(word));
+            if (anyWordBaseBelongToParticle(wordBaseForms)) {
+                return;
+            }
+
+            normalForms.addAll(luceneMorphologyEn.getNormalForms(word));
+        }
     }
 
     private boolean anyWordBaseBelongToParticle(List<String> wordBaseForms) {
@@ -141,6 +151,7 @@ public class LemmaFinderServiceImpl implements LemmaFinderService {
         }
         return true;
     }
+
     private boolean isCorrectWordFormEn(String word) {
         List<String> wordInfo = luceneMorphologyEn.getMorphInfo(word);
         for (String morphInfo : wordInfo) {

@@ -12,9 +12,6 @@ import searchengine.model.Index;
 import searchengine.model.Lemma;
 import searchengine.model.Page;
 import searchengine.model.Site;
-import searchengine.repositories.IndexRepository;
-import searchengine.repositories.LemmaRepository;
-import searchengine.repositories.SiteRepository;
 import searchengine.services.LemmaFinderService;
 import searchengine.services.SearchService;
 
@@ -25,30 +22,32 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class SearchServiceImpl implements SearchService {
 
-    private final LemmaFinderService lemmaFinderServiceImpl;
-    private final SiteRepository siteRepository;
-    private final LemmaRepository lemmaRepository;
-    private final IndexRepository indexRepository;
+    private final LemmaFinderService lemmaFinderService;
+    private final SiteService siteService;
+    private final LemmaService lemmaService;
+    private final IndexService indexService;
     private final SnippetFinderImpl snippetFinder;
 
     @Override
     public SearchResult search(String query, String site, int offset, int limit) {
-        if (query.isEmpty()) {
+        if (query.isEmpty())
             return new SearchErrorResult(false, "search query is empty");
-        }
-        Set<String> stringLemmasFromQuery = lemmaFinderServiceImpl.getLemmaSet(query);
-        Site selectedSite = siteRepository.findByUrlStartingWith(site);
+
+        Set<String> stringLemmasFromQuery = lemmaFinderService.getLemmaSet(query);
+        Site selectedSite = siteService.findByUrlStartingWith(site);
         Set<Lemma> lemmaSetAfterExcluding = excludeHighFrequencyLemmas(stringLemmasFromQuery, selectedSite);
-        if (lemmaSetAfterExcluding.isEmpty()) {
+
+        if (lemmaSetAfterExcluding.isEmpty())
             return new SearchErrorResult(false,"query not found on this site or the query is too frequent");
-        }
+
         Lemma rarestLemma = lemmaSetAfterExcluding.iterator().next();
         Set<Page> pagesWithTheRarestLemma = findPagesWithTheRarestLemma(rarestLemma, selectedSite);
         Set<Lemma> lemmaSetWithoutTheRarestLemma = lemmaSetAfterExcluding.size() == 1 ? lemmaSetAfterExcluding : lemmaSetAfterExcluding.stream().skip(1).collect(Collectors.toSet());
         Set<Page> filteredPages = filterPagesWithTheRarestLemma(pagesWithTheRarestLemma, lemmaSetWithoutTheRarestLemma, rarestLemma);
-        if (filteredPages.isEmpty()) {
+
+        if (filteredPages.isEmpty())
             return new SearchSuccessResult(true, 0, new HashSet<>());
-        }
+
         Set<SearchData> searchDataSet = prepareSearchData(filteredPages, lemmaSetAfterExcluding);
 
         return prepareSuccessSearchResult(searchDataSet, offset, limit);
@@ -58,10 +57,10 @@ public class SearchServiceImpl implements SearchService {
         List<Lemma> savedLemmas = new ArrayList<>();
         for (String stringLemma : stringLemmasFromQuery) {
             if (site == null) {
-                Optional<List<Lemma>> lemmaListOptional = lemmaRepository.findAllByLemma(stringLemma);
+                Optional<List<Lemma>> lemmaListOptional = lemmaService.findAllByLemma(stringLemma);
                 lemmaListOptional.ifPresent(savedLemmas::addAll);
             } else {
-                Optional<Lemma> lemmaOptional = lemmaRepository.findByLemmaAndSiteId(stringLemma, site.getId());
+                Optional<Lemma> lemmaOptional = lemmaService.findByLemmaAndSiteId(stringLemma, site.getId());
                 lemmaOptional.ifPresent(savedLemmas::add);
             }
         }
@@ -73,9 +72,9 @@ public class SearchServiceImpl implements SearchService {
         TreeSet<Page> pagesWithTheRarestLemma = new TreeSet<>();
 
         if (site == null) {
-            pagesWithTheRarestLemma.addAll(indexRepository.findPagesByLemmaId(rarestLemma.getId()));
+            pagesWithTheRarestLemma.addAll(indexService.findPagesByLemmaId(rarestLemma.getId()));
         } else {
-            pagesWithTheRarestLemma.addAll(indexRepository.findPagesByLemmaIdAndSiteId(rarestLemma.getId(), site.getId()));
+            pagesWithTheRarestLemma.addAll(indexService.findPagesByLemmaIdAndSiteId(rarestLemma.getId(), site.getId()));
         }
 
         return pagesWithTheRarestLemma;
@@ -88,7 +87,7 @@ public class SearchServiceImpl implements SearchService {
             TreeSet<Page> pagesToRemove = new TreeSet<>();
             for (Page page : filteredPages) {
                 double relevance = 0;
-                Optional<Index> indexOptional = indexRepository.findByPageIdAndLemmaId(page.getId(), lemma.getId());
+                Optional<Index> indexOptional = indexService.findByPageIdAndLemmaId(page.getId(), lemma.getId());
                 if (indexOptional.isEmpty()) {
                     pagesToRemove.add(page);
                 } else {
@@ -100,7 +99,7 @@ public class SearchServiceImpl implements SearchService {
             filteredPages.removeAll(pagesToRemove);
         }
         for (Page page : filteredPages) {
-            Optional<Index> indexOptional = indexRepository.findByPageIdAndLemmaId(page.getId(), rarestLemma.getId());
+            Optional<Index> indexOptional = indexService.findByPageIdAndLemmaId(page.getId(), rarestLemma.getId());
             if (indexOptional.isPresent()) {
                 Index index = indexOptional.get();
                 page.setRelevance(page.getRelevance()+index.getRank());
