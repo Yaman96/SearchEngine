@@ -7,7 +7,6 @@ import searchengine.model.Page;
 import searchengine.repositories.IndexJdbcRepository;
 import searchengine.repositories.IndexRepository;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -18,7 +17,7 @@ public class IndexService {
     private IndexRepository indexRepository;
     private IndexJdbcRepository indexJdbcRepository;
 
-    public ArrayList<Index> findAllByPageId(long pageId) {
+    public List<Index> findAllByPageId(long pageId) {
         return indexRepository.findAllByPageId(pageId);
     }
 

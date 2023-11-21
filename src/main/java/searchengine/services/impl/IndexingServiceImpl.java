@@ -24,21 +24,20 @@ import java.util.concurrent.ForkJoinPool;
 @Service
 public class IndexingServiceImpl implements IndexingService {
 
-    public final static List<searchengine.config.Site> sites = new ArrayList<>();
-    private List<Site> createdSites;
+    public final static List<searchengine.config.Site> sites = new ArrayList<>(); //Список сайтов для индексации
+    private List<Site> createdSites; //Список сайтов приведенных к типу model.Site
     private final SiteService siteService;
     private final PageService pageService;
     private final LemmaService lemmaService;
     private final IndexService indexService;
     private final LemmaFinderService lemmaFinderServiceImpl;
-    private final ConcurrentHashMap<Site, Thread> MAIN_THREADS = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<Site, ForkJoinPool> FORK_JOIN_POOLS = new ConcurrentHashMap<>();
-    private final Set<Site> STOPPED_SITES = new CopyOnWriteArraySet<>();
-    private final Map<Site, Boolean> SITE_ERROR = new ConcurrentHashMap<>();
-    private final Set<Lemma> lemmasToSave = new CopyOnWriteArraySet<>();
+    private final ConcurrentHashMap<Site, Thread> MAIN_THREADS = new ConcurrentHashMap<>(); //Потоки индексирующие сайты
+    private final ConcurrentHashMap<Site, ForkJoinPool> FORK_JOIN_POOLS = new ConcurrentHashMap<>(); //(FJP)ы всех потоков
+    private final Set<Site> STOPPED_SITES = new CopyOnWriteArraySet<>(); //Остановленные пользователем сайты
+    private final Map<Site, Boolean> SITE_ERROR = new ConcurrentHashMap<>(); //Сайты при индексации которых произошла ошибка
+    private final Set<Lemma> lemmasToSave = new CopyOnWriteArraySet<>(); //Временное хранилище лемм
     private static volatile boolean indexingIsRunning = false;
     private static volatile boolean stopIndexing = false;
-
 
     @Autowired
     public IndexingServiceImpl(SiteService siteService, PageService pageService, LemmaFinderService lemmaFinderServiceImpl, LemmaService lemmaService, IndexService indexService) {
@@ -54,12 +53,29 @@ public class IndexingServiceImpl implements IndexingService {
         if (indexingIsRunning) {
             return new IndexingErrorResponse(false, "Indexing is not finished yet");
         }
-        indexingIsRunning = true;
-        stopIndexing = false;
+        resetIndexingStatus();
         clearAllMapsAndListsAfterPreviousIndexing();
-        createdSites = createNewSites();
-        createdSites.forEach(site -> deleteSiteInfo(site, false));
-        PageExtractorServiceImpl.pageService = pageService;
+        createNewSites();
+        deleteSiteInfoForEachSite();
+        providePageServiceForPageExtractorServiceImpl();
+        prepareThreadsForEachSite();
+        startThreadsAndUpdateIndexingTime();
+        toggleIndexingIsRunningToFalseAfterFinishing();
+        return new IndexingSuccessResponse(true);
+    }
+
+    private void toggleIndexingIsRunningToFalseAfterFinishing() {
+        new Thread(this::awaitThreadFinish).start();
+    }
+
+    private void startThreadsAndUpdateIndexingTime() {
+        MAIN_THREADS.forEach((site, thread) -> {
+            thread.start();
+            updateIndexingTime(site, thread);
+        });
+    }
+
+    private void prepareThreadsForEachSite() {
         for (Site site : createdSites) {
             Thread thread = new Thread(() -> {
                 try {
@@ -73,16 +89,10 @@ public class IndexingServiceImpl implements IndexingService {
             });
             MAIN_THREADS.put(site, thread);
         }
-        MAIN_THREADS.forEach((site, thread) -> {
-            thread.start();
-            updateIndexingTime(site, thread);
-        });
-        new Thread(this::awaitThreadFinish).start();
-        return new IndexingSuccessResponse(true);
     }
 
     public IndexingResponse stopIndexing(Long siteId) {
-        indexingIsRunning = isIndexingIsRunning();
+        setIsIndexingIsRunning();
         if (!indexingIsRunning) return new IndexingErrorResponse(false, "Nothing to stop. Indexing is not running.");
 
         try {
@@ -135,6 +145,19 @@ public class IndexingServiceImpl implements IndexingService {
             indexService.saveAll(newIndexes);
         }
         return new IndexingSuccessResponse(true);
+    }
+
+    private void providePageServiceForPageExtractorServiceImpl() {
+        PageExtractorServiceImpl.pageService = pageService;
+    }
+
+    private void deleteSiteInfoForEachSite() {
+        createdSites.forEach(site -> deleteSiteInfo(site, false));
+    }
+
+    private void resetIndexingStatus() {
+        indexingIsRunning = true;
+        stopIndexing = false;
     }
 
     private IndexingResponse stopIndexingWhenSiteIsProvided(Long siteId) {
@@ -212,8 +235,8 @@ public class IndexingServiceImpl implements IndexingService {
         PageExtractorServiceImpl.pageList.clear();
     }
 
-    private boolean isIndexingIsRunning() {
-        return MAIN_THREADS.values().stream().anyMatch(Thread::isAlive);
+    private void setIsIndexingIsRunning() {
+        indexingIsRunning = MAIN_THREADS.values().stream().anyMatch(Thread::isAlive);
     }
 
     private void updateIndexesAndLemmasWhenPageIsProvided(Map<String, Integer> lemmaCountMapFromNewPage, List<Index> oldPageIndexes) {
@@ -249,6 +272,7 @@ public class IndexingServiceImpl implements IndexingService {
     }
 
     /*Deletes site from DB*/
+
     private void deleteSiteInfo(Site site, boolean deleteAll) {
         if (deleteAll) {
             indexService.deleteAllIndexes();
@@ -260,9 +284,9 @@ public class IndexingServiceImpl implements IndexingService {
         lemmaService.deleteAllBySiteId(site.getId());
         pageService.deleteBySiteId(site.getId());
     }
-
     /*Creates model.Site objects from simple config.Site objects*/
-    private List<Site> createNewSites() {
+
+    private void createNewSites() {
         List<Site> createdSites = new ArrayList<>();
         for (searchengine.config.Site site : IndexingServiceImpl.sites) {
             Site newSite = siteService.findByNameContainsIgnoreCase(site.getName());
@@ -280,10 +304,10 @@ public class IndexingServiceImpl implements IndexingService {
                 createdSites.add(siteService.save(newSite));
             }
         }
-        return createdSites;
+        this.createdSites = createdSites;
     }
-
     //Update indexing time every 1 sec
+
     @SuppressWarnings("All")
     private void updateIndexingTime(Site currentSite, Thread currentThread) {
         Thread updateThread = new Thread(() -> {
