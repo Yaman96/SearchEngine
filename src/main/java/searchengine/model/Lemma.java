@@ -1,6 +1,7 @@
 package searchengine.model;
 
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.apache.commons.lang3.builder.EqualsBuilder;
@@ -10,6 +11,7 @@ import org.jetbrains.annotations.NotNull;
 @Entity
 @Data
 @NoArgsConstructor
+@AllArgsConstructor
 public class Lemma implements Comparable<Lemma>{
 
     public Lemma(long siteId, String lemma, int frequency) {

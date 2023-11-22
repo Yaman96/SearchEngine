@@ -10,6 +10,7 @@ import searchengine.model.*;
 import searchengine.services.IndexingService;
 import searchengine.services.LemmaFinderService;
 import searchengine.services.PageExtractorService;
+import searchengine.utils.CustomLemmaList;
 
 import java.io.IOException;
 import java.net.URI;
@@ -35,7 +36,7 @@ public class IndexingServiceImpl implements IndexingService {
     private final ConcurrentHashMap<Site, ForkJoinPool> FORK_JOIN_POOLS = new ConcurrentHashMap<>(); //(FJP)ы всех потоков
     private final Set<Site> STOPPED_SITES = new CopyOnWriteArraySet<>(); //Остановленные пользователем сайты
     private final Map<Site, Boolean> SITE_ERROR = new ConcurrentHashMap<>(); //Сайты при индексации которых произошла ошибка
-    private final Set<Lemma> lemmasToSave = new CopyOnWriteArraySet<>(); //Временное хранилище лемм
+//    private final CustomLemmaList SavedLemmas = new CustomLemmaList(); //Временное хранилище лемм
     private static volatile boolean indexingIsRunning = false;
     private static volatile boolean stopIndexing = false;
 
@@ -230,7 +231,7 @@ public class IndexingServiceImpl implements IndexingService {
         FORK_JOIN_POOLS.clear();
         STOPPED_SITES.clear();
         SITE_ERROR.clear();
-        lemmasToSave.clear();
+//        SavedLemmas.clear();
         PageExtractorServiceImpl.links.clear();
         PageExtractorServiceImpl.pageList.clear();
     }
@@ -379,23 +380,15 @@ public class IndexingServiceImpl implements IndexingService {
             lemma_Count.forEach((lemmaString, count) ->
                     createOrUpdateLemmaAndAddIndex(siteId, lemmaString, pageId, count, indexList));
         }
-        lemmaService.saveAll(lemmasToSave);
+//        lemmaService.saveAll(SavedLemmas.getList());
         String sqlIndexInsertQuery = prepareIndexSqlInsertQuery(prepareIndexValuesForSqlInsertQuery(indexList));
         indexService.executeSql(sqlIndexInsertQuery);
     }
 
     private void createOrUpdateLemmaAndAddIndex(Long siteId, String lemmaString, Long pageId, Integer count, List<Index> indexList) {
         Lemma lemma = new Lemma(siteId, lemmaString, 1);
-        if (lemmasToSave.contains(lemma)) {
-            lemmasToSave.stream().filter(lemma1 -> lemma1.equals(lemma)).forEach(lemma1 -> {
-                lemma1.incrementFrequency();
-                lemma.setId(lemma1.getId());
-            });
-        } else {
-            Lemma savedLemma = lemmaService.save(lemma);
-            lemma.setId(savedLemma.getId());
-            lemmasToSave.add(savedLemma);
-        }
+        lemma = lemmaService.save(lemma);
+
         Index index = new Index(pageId, lemma.getId(), count);
         indexList.add(index);
     }

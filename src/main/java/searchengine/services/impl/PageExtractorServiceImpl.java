@@ -4,16 +4,19 @@ import lombok.NoArgsConstructor;
 import org.apache.hc.client5.http.ClientProtocolException;
 import org.apache.hc.client5.http.ContextBuilder;
 import org.apache.hc.client5.http.classic.methods.HttpGet;
+import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.HttpClientBuilder;
 import org.apache.hc.client5.http.protocol.HttpClientContext;
 import org.apache.hc.core5.http.ClassicHttpResponse;
 import org.apache.hc.core5.http.io.entity.EntityUtils;
+import org.apache.hc.core5.util.Timeout;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.springframework.stereotype.Service;
+import searchengine.dto.pageExtractor.ResponseDto;
 import searchengine.model.Page;
 import searchengine.model.Site;
 import searchengine.services.PageExtractorService;
@@ -62,7 +65,7 @@ public class PageExtractorServiceImpl extends RecursiveAction implements PageExt
             e.printStackTrace();
         }
 
-        ClassicHttpResponse response = getResponse(REFERER, USER_AGENT, link);
+        ResponseDto response = getResponse(REFERER, USER_AGENT, link);
 
         if (response == null) { // A problem occurred or the connection was aborted or http protocol error
             Page errorPage = new Page(link, 503, "503", site);
@@ -70,8 +73,8 @@ public class PageExtractorServiceImpl extends RecursiveAction implements PageExt
             return;
         }
 
-        int responseCode = response.getCode();
-        String pageContent = getPageContent(response);
+        int responseCode = response.getResponseCode();
+        String pageContent = response.getContent();
 
         //Error occurred while getting content InputStream or while reading InputStream
         if (pageContent == null) {
@@ -84,6 +87,7 @@ public class PageExtractorServiceImpl extends RecursiveAction implements PageExt
 
         Page currentPage = new Page(link, responseCode, document.html(), site);
         pageList.add(currentPage);
+        links.add(link);
 
         for (Element element : elements) {
             String link;
@@ -148,49 +152,49 @@ public class PageExtractorServiceImpl extends RecursiveAction implements PageExt
         }
     }
 
-    private ClassicHttpResponse getResponse(String referer, String userAgent, String uri) {
+    private ResponseDto getResponse(String referer, String userAgent, String uri) {
 
         try (final CloseableHttpClient httpclient = HttpClientBuilder.create().build()) {
             final HttpGet httpget = new HttpGet(uri);
             httpget.setHeader("Referer", referer);
             httpget.setHeader("User-Agent", userAgent);
 
+            final RequestConfig requestConfig = RequestConfig.custom()
+                    .setConnectionRequestTimeout(Timeout.ofSeconds(5))
+                    .build();
+            httpget.setConfig(requestConfig);
+
             final HttpClientContext context = ContextBuilder.create().build();
 
             final ClassicHttpResponse[] httpResponse = new ClassicHttpResponse[1];
+            final String[] content = new String[1];
             httpclient.execute(httpget, context, response -> {
                 httpResponse[0] = response;
+                content[0] = getPageContent(response.getEntity().getContent());
                 EntityUtils.consume(response.getEntity());
                 return null;
             });
-            return httpResponse[0];
-
+            ResponseDto responseDto = new ResponseDto(httpResponse[0].getCode(), content[0]);
+            return responseDto;
         }
         catch (ClientProtocolException e) {
             //Add logging (ClientProtocolException - in case of an http protocol error)
-            e.printStackTrace();
+            System.err.println(e);
         }
         catch (IOException e) {
             //Add logging (IOException - in case of a problem or the connection was aborted)
-            e.printStackTrace();
+            System.err.println(e);
         }
         return null;
     }
 
-    private String getPageContent(ClassicHttpResponse response) {
-        InputStream inputStream;
-        try {
-            inputStream = response.getEntity().getContent();
-        } catch (IOException e) {
-            //Add logging (Error occurred while getting content InputStream)
-            e.printStackTrace();
-            return null;
-        }
+    private String getPageContent(InputStream contentInputStream) {
+
         StringBuilder content = new StringBuilder();
         while (true) {
             try {
-                if (!(inputStream.available() > 0)) break;
-                content.append((char) inputStream.read());
+                if (!(contentInputStream.available() > 0)) break;
+                content.append((char) contentInputStream.read());
             } catch (IOException e) {
                 //Add logging (Error occurred while reading InputStream)
                 e.printStackTrace();
