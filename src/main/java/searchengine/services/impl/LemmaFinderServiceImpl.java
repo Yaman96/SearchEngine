@@ -91,7 +91,7 @@ public class LemmaFinderServiceImpl implements LemmaFinderService {
 
         if (anyWordBaseBelongToParticle(wordBaseForms)) return;
 
-        lemmaSet.addAll(luceneMorphologyRu.getNormalForms(word));
+        lemmaSet.add(luceneMorphologyRu.getNormalForms(word).get(0));
     }
 
     private void checkEnLemmaAndAddItToSet(String word, Set<String> lemmaSet) {
@@ -101,7 +101,7 @@ public class LemmaFinderServiceImpl implements LemmaFinderService {
 
         if (anyWordBaseBelongToParticle(wordBaseForms)) return;
 
-        lemmaSet.addAll(luceneMorphologyEn.getNormalForms(word));
+        lemmaSet.add(luceneMorphologyEn.getNormalForms(word).get(0));
     }
 
     private void getEnOrRuNormalForms(String word, List<String> wordBaseForms, List<String> normalForms) {

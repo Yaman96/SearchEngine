@@ -27,6 +27,7 @@ public class SearchServiceImpl implements SearchService {
     private final LemmaService lemmaService;
     private final IndexService indexService;
     private final SnippetFinderImpl snippetFinder;
+    private final int LEMMA_PERCENT = 1;
 
     @Override
     public SearchResult search(String query, String site, int offset, int limit) {
@@ -55,16 +56,16 @@ public class SearchServiceImpl implements SearchService {
 
     private TreeSet<Lemma> excludeHighFrequencyLemmas(Set<String> stringLemmasFromQuery, Site site) {
         List<Lemma> savedLemmas = new ArrayList<>();
+        int maxFrequency = site == null ? getMaxFrequency(null) : getMaxFrequency(site.getId());
         for (String stringLemma : stringLemmasFromQuery) {
             if (site == null) {
-                Optional<List<Lemma>> lemmaListOptional = lemmaService.findAllByLemma(stringLemma);
+                Optional<List<Lemma>> lemmaListOptional = lemmaService.findAllByLemmaWithFrequencyLessThan(stringLemma, maxFrequency);
                 lemmaListOptional.ifPresent(savedLemmas::addAll);
             } else {
-                Optional<Lemma> lemmaOptional = lemmaService.findByLemmaAndSiteId(stringLemma, site.getId());
+                Optional<Lemma> lemmaOptional = lemmaService.findByLemmaAndSiteIdAndFrequencyLessThan(stringLemma, site.getId(), maxFrequency);
                 lemmaOptional.ifPresent(savedLemmas::add);
             }
         }
-        savedLemmas.removeIf(lemma -> lemma.getFrequency() > 500);
         return new TreeSet<>(savedLemmas);
     }
 
@@ -82,6 +83,9 @@ public class SearchServiceImpl implements SearchService {
 
     private TreeSet<Page> filterPagesWithTheRarestLemma(Set<Page> pagesWithTheRarestLemma, Set<Lemma> lemmaSetWithoutTheRarestLemma, Lemma rarestLemma) {
         TreeSet<Page> filteredPages = new TreeSet<>(pagesWithTheRarestLemma);
+        if (lemmaSetWithoutTheRarestLemma.size() == 1) {
+            return filteredPages;
+        }
 
         for (Lemma lemma : lemmaSetWithoutTheRarestLemma) {
             TreeSet<Page> pagesToRemove = new TreeSet<>();
@@ -127,9 +131,6 @@ public class SearchServiceImpl implements SearchService {
     }
 
     private SearchResult prepareSuccessSearchResult(Set<SearchData> searchDataSet, int offset, int limit) {
-        if (limit == 0) {
-            limit = 20;
-        }
 
         int count = searchDataSet.size();
         TreeSet<SearchData> data = new TreeSet<>(searchDataSet);
@@ -140,8 +141,18 @@ public class SearchServiceImpl implements SearchService {
             safeLimit = count;
         }
 
-        TreeSet<SearchData> subData = new TreeSet<>(new ArrayList<>(data).subList(offset, offset + safeLimit));
+        TreeSet<SearchData> subData = new TreeSet<>(new ArrayList<>(data).subList(offset, safeLimit));
 
         return new SearchSuccessResult(true, count, subData);
+    }
+
+    private int getMaxFrequency(Long siteId) {
+        int frequencySum;
+        if (siteId == null) {
+            frequencySum = lemmaService.getFrequencySum();
+        } else {
+            frequencySum = lemmaService.getFrequencySum(siteId);
+        }
+        return frequencySum * LEMMA_PERCENT / 100;
     }
 }

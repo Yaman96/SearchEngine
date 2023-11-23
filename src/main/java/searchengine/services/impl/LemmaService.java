@@ -2,7 +2,6 @@ package searchengine.services.impl;
 
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Service;
-import searchengine.model.Index;
 import searchengine.model.Lemma;
 import searchengine.repositories.LemmaJdbcRepository;
 import searchengine.repositories.LemmaRepository;
@@ -22,12 +21,12 @@ public class LemmaService {
         return lemmaRepository.findByLemmaEquals(lemma);
     }
 
-    public Optional<List<Lemma>> findAllByLemma(String lemma) {
-        return lemmaRepository.findAllByLemma(lemma);
+    public Optional<List<Lemma>> findAllByLemmaWithFrequencyLessThan(String lemma, int frequency) {
+        return lemmaRepository.findAllByLemmaWithFrequencyLessThan(lemma, frequency);
     }
 
-    public Optional<Lemma> findByLemmaAndSiteId(String lemma, long siteId) {
-        return lemmaRepository.findByLemmaAndSiteId(lemma,siteId);
+    public Optional<Lemma> findByLemmaAndSiteIdAndFrequencyLessThan(String lemma, long siteId, int frequency) {
+        return lemmaRepository.findByLemmaAndSiteIdAndFrequencyLessThan(lemma, siteId, frequency);
     }
 
     public Optional<Lemma> findById(long lemmaId) {
@@ -79,5 +78,13 @@ public class LemmaService {
                     .append(currentLemma.getFrequency()).append("), ");
         }
         return result.toString();
+    }
+
+    public int getFrequencySum(long siteId) {
+        return lemmaRepository.getFrequencySum(siteId);
+    }
+
+    public int getFrequencySum() {
+        return lemmaRepository.getFrequencySum();
     }
 }

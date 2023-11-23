@@ -36,7 +36,6 @@ public class IndexingServiceImpl implements IndexingService {
     private final ConcurrentHashMap<Site, ForkJoinPool> FORK_JOIN_POOLS = new ConcurrentHashMap<>(); //(FJP)ы всех потоков
     private final Set<Site> STOPPED_SITES = new CopyOnWriteArraySet<>(); //Остановленные пользователем сайты
     private final Map<Site, Boolean> SITE_ERROR = new ConcurrentHashMap<>(); //Сайты при индексации которых произошла ошибка
-//    private final CustomLemmaList SavedLemmas = new CustomLemmaList(); //Временное хранилище лемм
     private static volatile boolean indexingIsRunning = false;
     private static volatile boolean stopIndexing = false;
 
@@ -231,7 +230,6 @@ public class IndexingServiceImpl implements IndexingService {
         FORK_JOIN_POOLS.clear();
         STOPPED_SITES.clear();
         SITE_ERROR.clear();
-//        SavedLemmas.clear();
         PageExtractorServiceImpl.links.clear();
         PageExtractorServiceImpl.pageList.clear();
     }

@@ -16,6 +16,7 @@ public class SnippetFinderImpl implements SnippetFinder {
 
     private final LemmaFinderService lemmaFinderServiceImpl;
     private int maxCountOfQueryWordsInsideBatch = 0;
+    private final Map<Integer,String> relevance_snippet = new TreeMap<>();
 
     @Autowired
     public SnippetFinderImpl(LemmaFinderService lemmaFinderServiceImpl) {
@@ -34,10 +35,10 @@ public class SnippetFinderImpl implements SnippetFinder {
 
         makeQueryWordsBold(wordsList,luceneMorphologyEn,luceneMorphologyRu,queryLemmasStrings);
 
-        Map<Integer,String> relevance_snippet = new TreeMap<>();
         List<List<String>> listsWith30wordsInside = splitList(wordsList, 30);
 
-        createSnippetsAndReturnMaxCountOfQueryWordsInASnippet(listsWith30wordsInside,relevance_snippet);
+        createSnippetsAndReturnMaxCountOfQueryWordsInASnippet(listsWith30wordsInside);
+
         return relevance_snippet.get(maxCountOfQueryWordsInsideBatch);
     }
 
@@ -61,7 +62,7 @@ public class SnippetFinderImpl implements SnippetFinder {
         }
     }
 
-    private void createSnippetsAndReturnMaxCountOfQueryWordsInASnippet(List<List<String>> listsWith30wordsInside, Map<Integer,String> relevance_snippet) {
+    private void createSnippetsAndReturnMaxCountOfQueryWordsInASnippet(List<List<String>> listsWith30wordsInside) {
         for(List<String> batch : listsWith30wordsInside) {
             int countOfQueryWordsInsideThisBatch = 0;
             for (String word : batch) {

@@ -17,10 +17,10 @@ public interface LemmaRepository extends CrudRepository<Lemma,Integer> {
     Optional<Lemma> findByLemmaEquals(String lemma);
 
     @Transactional
-    @Query(value = "SELECT l FROM Lemma l WHERE l.lemma = :lemma")
-    Optional<List<Lemma>> findAllByLemma(String lemma);
+    @Query(value = "SELECT l FROM Lemma l WHERE l.lemma = :lemma AND l.frequency < :frequency")
+    Optional<List<Lemma>> findAllByLemmaWithFrequencyLessThan(String lemma, int frequency);
     @Transactional
-    Optional<Lemma> findByLemmaAndSiteId(String lemma, long siteId);
+    Optional<Lemma> findByLemmaAndSiteIdAndFrequencyLessThan(String lemma, long siteId, int frequency);
 
     Optional<Lemma> findById(long lemmaId);
 
@@ -35,4 +35,9 @@ public interface LemmaRepository extends CrudRepository<Lemma,Integer> {
     void deleteAllLemmas();
 
     int countAllBySiteId(long siteId);
+
+    @Query(value = "SELECT SUM(l.frequency) FROM Lemma l where l.siteId = :siteId")
+    int getFrequencySum(long siteId);
+    @Query(value = "SELECT SUM(l.frequency) FROM Lemma l")
+    int getFrequencySum();
 }

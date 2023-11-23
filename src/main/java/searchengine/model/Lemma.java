@@ -40,7 +40,9 @@ public class Lemma implements Comparable<Lemma>{
 
     @Override
     public int compareTo(@NotNull Lemma o) {
-        if (frequency == o.frequency) {
+        if (frequency == o.frequency && lemma.equals(o.lemma)) {
+            return Long.compare(id, o.id);
+        } else if (frequency == o.frequency) {
             return lemma.compareTo(o.lemma);
         }
         return Integer.compare(frequency, o.frequency);
