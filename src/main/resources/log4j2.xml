@@ -4,10 +4,16 @@
         <Console name="Console" target="SYSTEM_OUT">
             <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
         </Console>
+        <File name="fileAppender" fileName="logs/app.log" append="true" immediateFlush="true">
+            <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
+        </File>
     </Appenders>
     <Loggers>
         <Root level="info">
             <AppenderRef ref="Console"/>
         </Root>
+        <Logger name="Application" level="info" additivity="false">
+            <AppenderRef ref="fileAppender"/>
+        </Logger>
     </Loggers>
 </Configuration>
