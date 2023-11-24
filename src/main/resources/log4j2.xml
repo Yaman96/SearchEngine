@@ -4,16 +4,28 @@
         <Console name="Console" target="SYSTEM_OUT">
             <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
         </Console>
-        <File name="fileAppender" fileName="logs/app.log" append="true" immediateFlush="true">
+        <File name="errorFileAppender" fileName="logs/error.log" append="true" immediateFlush="true">
+            <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %C:%L - %msg%n"/>
+        </File>
+        <File name="infoFileAppender" fileName="logs/info.log" append="true" immediateFlush="true">
             <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %msg%n"/>
+        </File>
+        <File name="debugFileAppender" fileName="logs/debug.log" append="true" immediateFlush="true">
+            <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %C:%L - %msg%n"/>
         </File>
     </Appenders>
     <Loggers>
         <Root level="info">
             <AppenderRef ref="Console"/>
         </Root>
-        <Logger name="Application" level="info" additivity="false">
-            <AppenderRef ref="fileAppender"/>
+        <Logger name="errorLogger" level="error" additivity="false">
+            <AppenderRef ref="errorFileAppender"/>
+        </Logger>
+        <Logger name="infoLogger" level="info" additivity="false">
+            <AppenderRef ref="infoFileAppender"/>
+        </Logger>
+        <Logger name="debugLogger" level="debug" additivity="false">
+            <AppenderRef ref="debugFileAppender"/>
         </Logger>
     </Loggers>
 </Configuration>

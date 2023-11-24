@@ -11,6 +11,8 @@ import org.apache.hc.client5.http.protocol.HttpClientContext;
 import org.apache.hc.core5.http.ClassicHttpResponse;
 import org.apache.hc.core5.http.io.entity.EntityUtils;
 import org.apache.hc.core5.util.Timeout;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -23,10 +25,7 @@ import searchengine.services.PageExtractorService;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.RecursiveAction;
@@ -37,8 +36,10 @@ import java.util.regex.Pattern;
 @SuppressWarnings("ALL")
 public class PageExtractorServiceImpl extends RecursiveAction implements PageExtractorService {
 
-    private final String REFERER = "https://google.com";
-    private final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
+    private final static Logger errorLogger = LogManager.getLogger("errorLogger");
+    private final static Logger debugLogger = LogManager.getLogger("debugLogger");
+    public final static String REFERER = "https://google.com";
+    public final static String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36";
     public static final CopyOnWriteArraySet<String> links = new CopyOnWriteArraySet<>();
     public static final CopyOnWriteArraySet<Page> pageList = new CopyOnWriteArraySet<>();
     public static PageService pageService;
@@ -61,25 +62,26 @@ public class PageExtractorServiceImpl extends RecursiveAction implements PageExt
 
         try {Thread.sleep(200);}
         catch (InterruptedException e) {
-            //Add logging
+            errorLogger.error("Exception occurred: " + Arrays.toString(e.getStackTrace()));
             e.printStackTrace();
         }
 
         ResponseDto response = getResponse(REFERER, USER_AGENT, link);
 
-        if (response == null) { // A problem occurred or the connection was aborted or http protocol error
+        if (response == null) {
             Page errorPage = new Page(link, 503, "503", site);
             pageList.add(errorPage);
+            debugLogger.debug("A problem occurred or the connection was aborted or http protocol error.");
             return;
         }
 
         int responseCode = response.getResponseCode();
         String pageContent = response.getContent();
 
-        //Error occurred while getting content InputStream or while reading InputStream
         if (pageContent == null) {
             Page errorPage = new Page(link, 503, "503", site);
             pageList.add(errorPage);
+            debugLogger.debug("Error occurred while getting content InputStream or while reading InputStream.");
             return;
         }
         Document document = Jsoup.parse(pageContent);
@@ -152,7 +154,7 @@ public class PageExtractorServiceImpl extends RecursiveAction implements PageExt
         }
     }
 
-    private ResponseDto getResponse(String referer, String userAgent, String uri) {
+    public static ResponseDto getResponse(String referer, String userAgent, String uri) {
 
         try (final CloseableHttpClient httpclient = HttpClientBuilder.create().build()) {
             final HttpGet httpget = new HttpGet(uri);
@@ -188,7 +190,7 @@ public class PageExtractorServiceImpl extends RecursiveAction implements PageExt
         return null;
     }
 
-    private String getPageContent(InputStream contentInputStream) {
+    private static String getPageContent(InputStream contentInputStream) {
 
         StringBuilder content = new StringBuilder();
         while (true) {
@@ -202,5 +204,57 @@ public class PageExtractorServiceImpl extends RecursiveAction implements PageExt
             }
         }
         return content.toString();
+    }
+
+    public static void main(String[] args) {
+        ResponseDto response = getResponse(REFERER, USER_AGENT, "https://honestreporting.ca/who-we-are/");
+        String html = response.getContent();
+        System.out.println(html.length());
+        System.out.println(response.getResponseCode());
+
+        Document doc = Jsoup.parse(html);
+        Elements links = doc.select("a[href]");
+
+        String mainUrl = "https://honestreporting.ca/";
+        String currentUrl = "https://honestreporting.ca/who-we-are/";
+
+        List<String> urls = new ArrayList<>();
+        // Вывести найденные ссылки
+        for (org.jsoup.nodes.Element link : links) {
+            String linkstr = link.attr("href");
+
+            if(!isNotNullAndEmpty(linkstr)) {
+                continue;
+            }
+
+            if(linkstr.startsWith(mainUrl)) {
+//                System.out.println("Link: " + linkstr);
+                urls.add(linkstr);
+            } else if (linkstr.startsWith("http")) {
+                continue;
+            } else {
+                if (linkstr.startsWith("/")) linkstr = linkstr.replaceFirst("/", "");
+//                System.out.println("Link: " + currentUrl + linkstr);
+                urls.add(currentUrl + linkstr);
+                urls.add(mainUrl + linkstr);
+            }
+        }
+        checkLinks(urls);
+    }
+
+    private static boolean isNotNullAndEmpty(String linkstr) {
+        return linkstr != null && !linkstr.isEmpty() && !linkstr.isBlank();
+    }
+
+    private static void checkLinks(List<String> urls) {
+        for (String url : urls) {
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+            ResponseDto responseDto = getResponse(REFERER, USER_AGENT, url);
+            System.out.println("Link: " + url + " response code: " + responseDto.getResponseCode());
+        }
     }
 }

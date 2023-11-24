@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import searchengine.dto.indexing.IndexingErrorResponse;
 import searchengine.dto.indexing.IndexingResponse;
 import searchengine.dto.indexing.IndexingSuccessResponse;
+import searchengine.dto.pageExtractor.ResponseDto;
 import searchengine.model.*;
 import searchengine.services.IndexingService;
 import searchengine.services.LemmaFinderService;
@@ -116,17 +117,10 @@ public class IndexingServiceImpl implements IndexingService {
             return new IndexingErrorResponse(false, "This page is outside the sites specified in the configuration file");
         }
 
-        Connection.Response response;
-        String HTML = null;
-        try {
-            response = PageExtractorService.getResponse(url);
-            HTML = PageExtractorService.getHTML(response);
-        } catch (InterruptedException | IOException e) {
-            e.printStackTrace();
-            return new IndexingErrorResponse(false, "Connection failed");
-        }
+        ResponseDto response = PageExtractorServiceImpl.getResponse(PageExtractorServiceImpl.REFERER, PageExtractorServiceImpl.USER_AGENT, url);
+        String HTML = response.getContent();
 
-        int code = response.statusCode();
+        int code = response.getResponseCode();
         Page page = pageService.findByPath(url);
 
         Map<String, Integer> lemmaCountMapFromNewPage = lemmaFinderServiceImpl.collectLemmas(HTML);
