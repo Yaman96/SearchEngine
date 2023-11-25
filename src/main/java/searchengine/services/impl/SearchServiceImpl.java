@@ -1,6 +1,8 @@
 package searchengine.services.impl;
 
 import lombok.RequiredArgsConstructor;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.springframework.stereotype.Service;
@@ -27,6 +29,7 @@ public class SearchServiceImpl implements SearchService {
     private final LemmaService lemmaService;
     private final IndexService indexService;
     private final SnippetFinderImpl snippetFinder;
+    private final Logger debugLogger = LogManager.getLogger("debugSearchServiceLogger");
     private final int LEMMA_PERCENT = 1;
 
     @Override
@@ -37,6 +40,8 @@ public class SearchServiceImpl implements SearchService {
         Set<String> stringLemmasFromQuery = lemmaFinderService.getLemmaSet(query);
         Site selectedSite = siteService.findByUrlStartingWith(site);
         Set<Lemma> lemmaSetAfterExcluding = excludeHighFrequencyLemmas(stringLemmasFromQuery, selectedSite);
+        debugLogger.debug("Query: {},\n Query lemmas are: {},\n Selected site: {},\n Query lemmas after excluding high frequency lemmas: {}",
+                query, stringLemmasFromQuery, site, lemmaSetAfterExcluding);
 
         if (lemmaSetAfterExcluding.isEmpty())
             return new SearchErrorResult(false,"query not found on this site or the query is too frequent");
@@ -45,6 +50,7 @@ public class SearchServiceImpl implements SearchService {
         Set<Page> pagesWithTheRarestLemma = findPagesWithTheRarestLemma(rarestLemma, selectedSite);
         Set<Lemma> lemmaSetWithoutTheRarestLemma = lemmaSetAfterExcluding.size() == 1 ? lemmaSetAfterExcluding : lemmaSetAfterExcluding.stream().skip(1).collect(Collectors.toSet());
         Set<Page> filteredPages = filterPagesWithTheRarestLemma(pagesWithTheRarestLemma, lemmaSetWithoutTheRarestLemma, rarestLemma);
+        debugLogger.debug("The rarest lemma is: {}, \nPages that contain the rarest lemma: {}, \nLemmas without the rarest lemma: {}, \nPages excluding those that do not contain the rest lemmas: {}.", rarestLemma, pagesWithTheRarestLemma, lemmaSetWithoutTheRarestLemma, filteredPages);
 
         if (filteredPages.isEmpty())
             return new SearchSuccessResult(true, 0, new HashSet<>());

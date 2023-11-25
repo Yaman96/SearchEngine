@@ -13,6 +13,9 @@
         <File name="debugFileAppender" fileName="logs/debug.log" append="true" immediateFlush="true">
             <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %C:%L - %msg%n"/>
         </File>
+        <File name="debugSearchServiceFileAppender" fileName="logs/debugSearchService.log" append="true" immediateFlush="true">
+            <PatternLayout pattern="%d{HH:mm:ss.SSS} [%t] %-5level %logger{36} - %C:%L - %msg%n"/>
+        </File>
     </Appenders>
     <Loggers>
         <Root level="info">
@@ -26,6 +29,9 @@
         </Logger>
         <Logger name="debugLogger" level="debug" additivity="false">
             <AppenderRef ref="debugFileAppender"/>
+        </Logger>
+        <Logger name="debugSearchServiceLogger" level="debug" additivity="false">
+            <AppenderRef ref="debugSearchServiceFileAppender"/>
         </Logger>
     </Loggers>
 </Configuration>

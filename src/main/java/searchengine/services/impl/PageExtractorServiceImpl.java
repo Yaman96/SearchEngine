@@ -60,10 +60,11 @@ public class PageExtractorServiceImpl extends RecursiveAction implements PageExt
 
     private void getLinks(Set<PageExtractorServiceImpl> tasks) {
 
-        try {Thread.sleep(200);}
+        try {
+            Thread.sleep(200);
+        }
         catch (InterruptedException e) {
-            errorLogger.error("Exception occurred: " + Arrays.toString(e.getStackTrace()));
-            e.printStackTrace();
+            errorLogger.error("Exception: {} ", e.getMessage() + " At class: PageExtractorServiceImpl, method: getLinks(...)");
         }
 
         ResponseDto response = getResponse(REFERER, USER_AGENT, link);
@@ -81,7 +82,7 @@ public class PageExtractorServiceImpl extends RecursiveAction implements PageExt
         if (pageContent == null) {
             Page errorPage = new Page(link, 503, "503", site);
             pageList.add(errorPage);
-            debugLogger.debug("Error occurred while getting content InputStream or while reading InputStream.");
+            debugLogger.debug("Error occurred while getting content InputStream or while reading InputStream.\n" + errorPage);
             return;
         }
         Document document = Jsoup.parse(pageContent);
@@ -180,12 +181,12 @@ public class PageExtractorServiceImpl extends RecursiveAction implements PageExt
             return responseDto;
         }
         catch (ClientProtocolException e) {
-            //Add logging (ClientProtocolException - in case of an http protocol error)
-            System.err.println(e);
+            //ClientProtocolException - in case of an http protocol error
+            errorLogger.error("Exception: {} \n {} ", e.getMessage(), " At class: PageExtractorServiceImpl, method: getResponse(...)");
         }
         catch (IOException e) {
-            //Add logging (IOException - in case of a problem or the connection was aborted)
-            System.err.println(e);
+            //IOException - in case of a problem or the connection was aborted
+            errorLogger.error("Exception: {} \n {} ", e.getMessage(), " At class: PageExtractorServiceImpl, method: getResponse(...)");
         }
         return null;
     }
@@ -198,63 +199,12 @@ public class PageExtractorServiceImpl extends RecursiveAction implements PageExt
                 if (!(contentInputStream.available() > 0)) break;
                 content.append((char) contentInputStream.read());
             } catch (IOException e) {
-                //Add logging (Error occurred while reading InputStream)
+                //IOException occurred while reading InputStream
+                errorLogger.error("Exception: {} \n {} ", e.getMessage(), " At class: PageExtractorServiceImpl, method: getPageContent(...)");
                 e.printStackTrace();
                 return null;
             }
         }
         return content.toString();
-    }
-
-    public static void main(String[] args) {
-        ResponseDto response = getResponse(REFERER, USER_AGENT, "https://honestreporting.ca/who-we-are/");
-        String html = response.getContent();
-        System.out.println(html.length());
-        System.out.println(response.getResponseCode());
-
-        Document doc = Jsoup.parse(html);
-        Elements links = doc.select("a[href]");
-
-        String mainUrl = "https://honestreporting.ca/";
-        String currentUrl = "https://honestreporting.ca/who-we-are/";
-
-        List<String> urls = new ArrayList<>();
-        // Вывести найденные ссылки
-        for (org.jsoup.nodes.Element link : links) {
-            String linkstr = link.attr("href");
-
-            if(!isNotNullAndEmpty(linkstr)) {
-                continue;
-            }
-
-            if(linkstr.startsWith(mainUrl)) {
-//                System.out.println("Link: " + linkstr);
-                urls.add(linkstr);
-            } else if (linkstr.startsWith("http")) {
-                continue;
-            } else {
-                if (linkstr.startsWith("/")) linkstr = linkstr.replaceFirst("/", "");
-//                System.out.println("Link: " + currentUrl + linkstr);
-                urls.add(currentUrl + linkstr);
-                urls.add(mainUrl + linkstr);
-            }
-        }
-        checkLinks(urls);
-    }
-
-    private static boolean isNotNullAndEmpty(String linkstr) {
-        return linkstr != null && !linkstr.isEmpty() && !linkstr.isBlank();
-    }
-
-    private static void checkLinks(List<String> urls) {
-        for (String url : urls) {
-            try {
-                Thread.sleep(200);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-            ResponseDto responseDto = getResponse(REFERER, USER_AGENT, url);
-            System.out.println("Link: " + url + " response code: " + responseDto.getResponseCode());
-        }
     }
 }

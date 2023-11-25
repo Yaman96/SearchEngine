@@ -17,7 +17,6 @@ import java.net.URL;
 public class Application {
 
     private final static Logger infoLogger = LogManager.getLogger("infoLogger");
-    private final static Logger debugLogger = LogManager.getLogger("debugLogger");
     public static void main(String[] args) {
         if (args.length == 0) {
             throw new NoSuchParameterException("Enter site's main page url");
@@ -29,7 +28,6 @@ public class Application {
                     Site site = new Site(rootUrl,siteName);
                     IndexingServiceImpl.sites.add(site);
                     infoLogger.info("Site: " + rootUrl + " added.");
-                    debugLogger.debug("Site: " + rootUrl + " added.");
                 }
             } catch (MalformedURLException e) {
                 throw new RuntimeException(e);
